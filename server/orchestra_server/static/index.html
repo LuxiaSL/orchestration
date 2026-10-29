@@ -353,14 +353,38 @@ function threadCard(t, closed) {
     <div class="meta"><span class="tag ${k}">${k}</span><span class="who">${esc(t.from)}</span>${topic}<span>${ago(t.ts)}</span><span class="id">${t.id}</span></div>
     <div class="body">${esc(t.body)}</div>${extra}${foot}</div>`;
 }
-function renderInbox() {
-  const open = state.inbox.open, closed = state.inbox.closed;
-  $("#open").innerHTML = open.length ? open.map((t) => threadCard(t, false)).join("") : `<div class="empty">inbox zero — everyone's cooking</div>`;
-  $("#closed").innerHTML = closed.map((t) => threadCard(t, true)).join("") || `<div class="empty">nothing yet</div>`;
+// Re-rendering replaces nodes: that drops focus from a box being typed in and removes the
+// node the browser anchors scrolling to. So: don't rebuild the inbox while it's being typed
+// in (catch up on focusout), and if a rebuild elsewhere eats the focused field, put it back.
+let inboxStale = false;
+const typingInInbox = () => !!(document.activeElement && document.activeElement.closest("#inbox textarea"));
+function keepFocus(fn) {
+  const a = document.activeElement;
+  const key = a && (a.dataset && a.dataset.draft ? `textarea[data-draft="${a.dataset.draft}"]` : a.id ? "#" + a.id : null);
+  const sel = a && typeof a.selectionStart === "number" ? [a.selectionStart, a.selectionEnd] : null;
+  fn();
+  if (a && key && !document.contains(a)) {
+    const n = document.querySelector(key);
+    if (n) { n.focus({ preventScroll: true }); if (sel && n.setSelectionRange) n.setSelectionRange(sel[0], sel[1]); }
+  }
+}
+function renderCounts() {
+  const open = state.inbox.open;
   const asks = open.filter((t) => t.kind === "ask").length;
   $("#openCount").textContent = open.length ? `${open.length} open${asks ? ` · ${asks} ask${asks > 1 ? "s" : ""}` : ""}` : "";
   $("#tabInbox").textContent = open.length ? `(${open.length})` : "";
   document.title = open.length ? `(${open.length}) orchestra` : "orchestra";
+}
+function renderInbox() {
+  renderCounts();
+  if (typingInInbox()) { inboxStale = true; return; }
+  inboxStale = false;
+  keepFocus(renderInboxNow);
+}
+function renderInboxNow() {
+  const open = state.inbox.open, closed = state.inbox.closed;
+  $("#open").innerHTML = open.length ? open.map((t) => threadCard(t, false)).join("") : `<div class="empty">inbox zero — everyone's cooking</div>`;
+  $("#closed").innerHTML = closed.map((t) => threadCard(t, true)).join("") || `<div class="empty">nothing yet</div>`;
   document.querySelectorAll("textarea[data-draft]").forEach((ta) => {
     ta.oninput = () => (drafts[ta.dataset.draft] = ta.value);
     ta.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) answer(ta.dataset.draft); };
@@ -410,6 +434,14 @@ function evRow(e) {
     <div class="ts" title="${esc(e.ts)}">${hhmm(e.ts)}</div>
     <div><div class="head"><b>${esc(e.from)}</b><span>→ ${esc(e.to)}</span><span class="k">${esc(e.kind)}</span>${ref}${topic}<span class="re">↩ address</span></div>
     <div class="txt">${esc(e.body)}${esc(extra)}</div></div></div>`;
+}
+const feedShows = (e) => (!$("#hideStatus").checked || e.kind !== "status") && (!$("#onlyMine").checked || e.from === OP() || e.to === "@" + OP());
+function prependEvent(e) {
+  if (!feedShows(e)) return;
+  const box = $("#events");
+  const empty = box.querySelector(".empty"); if (empty) empty.remove();
+  box.insertAdjacentHTML("afterbegin", evRow(e));
+  while (box.children.length > 300) box.lastElementChild.remove();
 }
 function renderFeed() {
   const hide = $("#hideStatus").checked, mine = $("#onlyMine").checked;
@@ -497,7 +529,7 @@ async function updatePushBtn() {
 async function testPush() { try { const r = await api("/api/push/test", { method: "POST" }); toast(`test push → ${r.delivered} device(s)`); } catch (e) { toast(e.message); } }
 
 // ---- live ----
-async function refresh() { state = await api("/api/state"); pubKey = state.push && state.push.public_key; renderInbox(); renderSessions(); }
+async function refresh() { state = await api("/api/state"); pubKey = state.push && state.push.public_key; renderInbox(); keepFocus(renderSessions); }
 function connect() {
   if (es) es.close();
   const after = events.length ? events[events.length - 1].seq : state.head;
@@ -505,7 +537,7 @@ function connect() {
   es.addEventListener("bus", (m) => {
     const e = JSON.parse(m.data);
     if (events.length && e.seq <= events[events.length - 1].seq) return;
-    events.push(e); renderFeed();
+    events.push(e); if (events.length > 1000) events.splice(0, events.length - 1000); prependEvent(e);
     if (["ask", "request", "note", "answer", "ack", "defaulted", "withdraw"].includes(e.kind)) refresh();
     else state.head = e.seq;
   });
@@ -524,6 +556,7 @@ function showTab(id) {
 }
 document.querySelectorAll("nav.tabs button").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
 $("#hideStatus").onchange = renderFeed; $("#onlyMine").onchange = renderFeed;
+$("#inbox").addEventListener("focusout", () => setTimeout(() => { if (inboxStale && !typingInInbox() && state) renderInbox(); }, 0));
 
 async function boot() {
   try { await refresh(); } catch { return; }
