@@ -16,6 +16,11 @@ rsync -az --delete --exclude .venv --exclude __pycache__ --exclude .pytest_cache
   server/ "$HOST:/opt/orchestra/server/"
 render deploy/orchestra.service.in | ssh "$HOST" "cat > /etc/systemd/system/orchestra.service"
 render deploy/orchestra.caddy.in | ssh "$HOST" "cat > /etc/caddy/orchestra.caddy"
+# Optional branding (fonts, brand.css): deploy/brand/ is gitignored and served as /brand.css + /brand/<file>.
+if [[ -d deploy/brand ]]; then
+  ssh "$HOST" "install -d -o orchestra -g orchestra -m 0755 /var/lib/orchestra/brand" 2>/dev/null || ssh "$HOST" "mkdir -p /var/lib/orchestra/brand"
+  rsync -az --delete --chown=orchestra:orchestra deploy/brand/ "$HOST:/var/lib/orchestra/brand/"
+fi
 ssh "$HOST" bash -s <<'REMOTE'
 set -euo pipefail
 id orchestra >/dev/null 2>&1 || useradd --system --home /var/lib/orchestra --shell /usr/sbin/nologin orchestra

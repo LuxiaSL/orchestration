@@ -102,7 +102,7 @@ class Pusher:
                 "requireInteraction": True,
                 "actions": [{"action": "default", "title": "Take default"}, {"action": "open", "title": "Open"}],
             }, urgency="high"))
-        elif ev.kind in ("request", "note", "defaulted"):
+        elif ev.kind in ("request", "note", "defaulted", "answer"):
             self._pending.append(ev)
             if self._digest_task is None or self._digest_task.done():
                 self._digest_task = self._spawn(self._digest_later())
@@ -115,7 +115,7 @@ class Pusher:
         counts: dict[str, int] = {}
         for ev in batch:
             counts[ev.kind] = counts.get(ev.kind, 0) + 1
-        label = {"request": "request", "note": "note", "defaulted": "ask defaulted"}
+        label = {"request": "request", "note": "note", "defaulted": "ask defaulted", "answer": "answer"}
         summary = ", ".join(f"{n} {label[k]}{'s' if n > 1 and k != 'defaulted' else ''}" for k, n in counts.items())
         lines = [f"{ev.from_ if ev.kind != 'defaulted' else ev.to[1:]}: {ev.body[:80]}" for ev in batch[-4:]]
         await self.send({

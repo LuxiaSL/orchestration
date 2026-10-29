@@ -106,6 +106,7 @@ class Thread(BaseModel):
     resolution: str | None = None
     resolved_at: datetime | None = None
     resolved_by: str | None = None
+    answers: list[dict] = Field(default_factory=list)  # broadcast requests: one per answering session
 
     model_config = ConfigDict(populate_by_name=True)
 

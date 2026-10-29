@@ -7,3 +7,4 @@ deploy/local.env
 # local-only: about our own setup, not the project
 JOURNAL.md
 ORCHESTRA.md
+deploy/brand/

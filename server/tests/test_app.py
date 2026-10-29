@@ -147,3 +147,26 @@ def test_push_policy_records_payloads(client):
 
 def test_operator_name_is_reported(client):
     assert client.get("/api/state", headers=AGENT).json()["operator"] == "ada"
+
+
+def test_broadcast_request_collects_answers(client):
+    req = client.post("/api/events", headers=OP, json={"from": "ada", "to": "@all", "kind": "request", "body": "roundup?"}).json()
+    for who in ("atlas", "hermes"):
+        r = client.post("/api/events", headers=AGENT, json={"from": who, "kind": "answer", "ref": req["id"], "body": f"{who} here"})
+        assert r.status_code == 200, r.text
+        assert r.json()["to"] == "@ada"
+    t = client.get(f"/api/threads/{req['id']}", headers=OP).json()
+    assert t["status"] == "open" and [a["from"] for a in t["answers"]] == ["atlas", "hermes"]
+    sent = client.get("/api/state", headers=OP).json()["inbox"]["sent"]
+    assert sent[0]["id"] == req["id"] and len(sent[0]["answers"]) == 2
+    # the operator closes it; a late answer is still recorded
+    assert client.post("/api/events", headers=OP, json={"from": "ada", "kind": "ack", "ref": req["id"]}).status_code == 200
+    assert client.post("/api/events", headers=AGENT, json={"from": "zeus", "kind": "answer", "ref": req["id"], "body": "late"}).status_code == 200
+    t = client.get(f"/api/threads/{req['id']}", headers=OP).json()
+    assert t["status"] == "acked" and len(t["answers"]) == 3
+
+
+def test_refusal_names_the_reason(client):
+    req = client.post("/api/events", headers=AGENT, json={"from": "atlas", "to": "@hermes", "kind": "request", "body": "?"}).json()
+    r = client.post("/api/events", headers=AGENT, json={"from": "zeus", "kind": "answer", "ref": req["id"], "body": "x"})
+    assert r.status_code == 403 and "@hermes" in r.json()["detail"]

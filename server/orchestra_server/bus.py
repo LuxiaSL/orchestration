@@ -82,6 +82,10 @@ class Bus:
             )
         elif ev.kind in CLOSING_KINDS and ev.ref in self.threads:
             t = self.threads[ev.ref]
+            if t.to == "@all" and ev.kind == "answer" and ev.from_ != t.from_:
+                # A broadcast request collects one answer per session; only its opener closes it.
+                t.answers.append({"from": ev.from_, "body": ev.body, "ts": ev.ts.isoformat(), "id": ev.id})
+                return
             if t.status == "open":
                 t.status = {"answer": "answered", "ack": "acked", "defaulted": "defaulted", "withdraw": "withdrawn"}[ev.kind]  # type: ignore[assignment]
                 t.resolution = ev.body or (t.default if ev.kind == "defaulted" else None)
@@ -199,4 +203,8 @@ class Bus:
             key=lambda t: (t.kind != "ask", t.deadline or datetime.max.replace(tzinfo=UTC), t.ts),
         )
         closed = sorted((t for t in mine if t.status != "open"), key=lambda t: t.resolved_at or t.ts, reverse=True)
-        return {"open": [t.wire() for t in open_], "closed": [t.wire() for t in closed[:recent]]}
+        sent = sorted((t for t in self.threads.values() if t.from_ == self.operator),
+                      key=lambda t: (t.status != "open", -t.ts.timestamp()))
+        sent = [t for t in sent if t.status == "open"] + [t for t in sent if t.status != "open"][:10]
+        return {"open": [t.wire() for t in open_], "closed": [t.wire() for t in closed[:recent]],
+                "sent": [t.wire() for t in sent]}

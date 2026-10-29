@@ -4,168 +4,263 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>orchestra</title>
-<meta name="theme-color" content="#14121a">
+<meta name="theme-color" content="#0b0c0e" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400&display=swap">
 <style>
+/* Grayscale typewriter. Hierarchy comes from weight, inversion, rules and hatching, not hue.
+   A deployment can restyle via /brand.css (loaded last): override --f-body / --f-display, add @font-face. */
 :root {
-  --bg: #14121a; --panel: #1c1924; --panel2: #24202e; --line: #322c3f;
-  --text: #e9e4f2; --dim: #9a91ab; --faint: #6c6480;
-  --ask: #ff6b7d; --req: #ffb454; --note: #7cc4ff; --ok: #7be0a6; --accent: #c39bff;
-  --radius: 12px;
-  font: 15px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  color-scheme: dark;
+  --bg: #ffffff; --surface: #ffffff; --surface2: #f3f4f6; --fg: #0b0c0e; --muted: #5a626d; --faint: #8b939d;
+  --line: #d5d9de; --rule: #0b0c0e; --hatch: #c9ced5; --chip: #f3f4f6; --shadow: 0 10px 40px rgba(11,12,14,.14);
+  --f-body: "Courier Prime", "Courier New", ui-monospace, monospace;
+  --f-display: var(--f-body);
+  --gutter: 16px;
+  color-scheme: light;
 }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0b0c0e; --surface: #0b0c0e; --surface2: #15181c; --fg: #f2f3f5; --muted: #9aa3ad; --faint: #6b737e;
+  --line: #2b3038; --rule: #f2f3f5; --hatch: #39404a; --chip: #15181c; --shadow: 0 10px 40px rgba(0,0,0,.6);
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0b0c0e; --surface: #0b0c0e; --surface2: #15181c; --fg: #f2f3f5; --muted: #9aa3ad; --faint: #6b737e;
+  --line: #2b3038; --rule: #f2f3f5; --hatch: #39404a; --chip: #15181c; --shadow: 0 10px 40px rgba(0,0,0,.6);
+  color-scheme: dark }
+
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); min-height: 100vh; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 15px; line-height: 1.5; min-height: 100vh; }
 button, textarea, select, input { font: inherit; color: inherit; }
-button {
-  background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
-  padding: 7px 12px; cursor: pointer;
+a { color: var(--fg); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+::selection { background: var(--fg); color: var(--bg); }
+:focus-visible { outline: 1px solid var(--fg); outline-offset: 2px; }
+
+/* buttons: primary is inverted, secondary is ruled, ghost is text */
+.btn { background: transparent; border: 1px solid var(--fg); color: var(--fg); padding: 7px 14px; cursor: pointer; border-radius: 2px; letter-spacing: .02em; }
+.btn:hover { background: var(--surface2); }
+.btn.primary { background: var(--fg); color: var(--bg); font-weight: 700; }
+.btn.primary:hover { opacity: .88; background: var(--fg); }
+.btn.ghost { border-color: transparent; color: var(--muted); padding: 7px 8px; }
+.btn.ghost:hover { color: var(--fg); background: transparent; text-decoration: underline; }
+.btn:disabled { opacity: .4; cursor: default; }
+textarea, input[type=password] {
+  width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 2px; padding: 10px 12px; resize: vertical;
 }
-button:hover { border-color: var(--accent); }
-button.primary { background: var(--accent); color: #1a1222; border-color: var(--accent); font-weight: 600; }
-button.danger { border-color: var(--ask); color: var(--ask); }
-button:disabled { opacity: .5; cursor: default; }
-textarea, select, input {
-  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%;
+textarea:focus, input:focus { border-color: var(--fg); outline: none; }
+.lbl { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+
+/* ---- header ---- */
+header.top {
+  position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--rule);
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) max(var(--gutter), env(safe-area-inset-right, 0px)) 10px max(var(--gutter), env(safe-area-inset-left, 0px));
 }
-textarea { resize: vertical; min-height: 2.6em; }
+.wordmark { font-family: var(--f-display); font-weight: 700; font-size: 22px; letter-spacing: .01em; margin: 0; }
+.eyebrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.dot { width: 8px; height: 8px; border: 1px solid var(--fg); display: inline-block; border-radius: 50%; }
+.dot.on { background: var(--fg); }
+.spacer { flex: 1; }
 
-header {
-  position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 92%, transparent);
-  backdrop-filter: blur(6px); border-bottom: 1px solid var(--line);
-  display: flex; align-items: center; gap: 10px; padding: 10px 16px; flex-wrap: wrap;
+nav.tabs { display: none; border-bottom: 1px solid var(--line); padding: 0 var(--gutter); }
+nav.tabs button { flex: 1; background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 4px; cursor: pointer; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; font-size: 13px; }
+nav.tabs button.active { color: var(--fg); border-bottom-color: var(--fg); font-weight: 700; }
+
+main {
+  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) 380px; gap: 28px;
+  padding: 22px max(var(--gutter), env(safe-area-inset-right, 0px)) 72px max(var(--gutter), env(safe-area-inset-left, 0px));
+  max-width: 1680px; margin: 0 auto;
 }
-header h1 { font-size: 17px; margin: 0; letter-spacing: .02em; }
-header h1 span { color: var(--accent); }
-.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); display: inline-block; }
-.dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
-header .spacer { flex: 1; }
-header .meta { color: var(--dim); font-size: 13px; }
+main > section, main > aside { min-width: 0; }
+.sec-h { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--rule); }
+.sec-h h2 { font-family: var(--f-display); font-size: 15px; letter-spacing: .14em; text-transform: uppercase; margin: 0; }
+.sec-h .n { font-size: 13px; color: var(--muted); }
+.sec-h .tools { margin-left: auto; display: flex; gap: 12px; font-size: 12.5px; color: var(--muted); }
+.sec-h .tools label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
+.sec-h .tools input { accent-color: var(--fg); }
+.empty { color: var(--faint); padding: 26px 12px; text-align: center; border: 1px dashed var(--line); }
 
-nav.tabs { display: none; gap: 6px; padding: 8px 16px 0; }
-nav.tabs button { flex: 1; }
-nav.tabs button.active { border-color: var(--accent); color: var(--accent); }
+/* ---- inbox: form carries urgency ---- */
+.card { border: 1px solid var(--line); padding: 14px 16px; margin-bottom: 14px; background: var(--surface); }
+.card.ask { border: 2px solid var(--fg); }
+.card.request { border: 1px solid var(--fg); }
+.card.note { border: 1px dashed var(--muted); }
+.card.flash { box-shadow: 0 0 0 3px var(--fg); }
+.card .meta { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.card .meta .who { color: var(--fg); font-weight: 700; }
+.card .meta .id { margin-left: auto; color: var(--faint); font-size: 12px; }
+.tag { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; padding: 1px 7px; border: 1px solid var(--fg); }
+.tag.ask { background: var(--fg); color: var(--bg); }
+.tag.note { border-style: dashed; border-color: var(--muted); color: var(--muted); }
+.card .body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0; font-size: 15.5px; }
+.dflt { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 13.5px; padding: 8px 10px; border-left: 3px solid var(--fg); background: var(--surface2); margin: 8px 0; }
+.dflt .k { color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: 11.5px; padding-top: 2px; }
+.countdown { display: inline-block; font-variant-numeric: tabular-nums; font-weight: 700; margin-top: 4px; padding: 1px 0; }
+.countdown.soon { background: var(--fg); color: var(--bg); padding: 1px 8px; }
+.reply { margin-top: 10px; display: grid; gap: 8px; }
+.reply .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.reply .row .spacer { flex: 1; }
+details.closed { margin-top: 18px; }
+details.closed summary { cursor: pointer; color: var(--muted); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+.card.done { opacity: .6; border: 1px solid var(--line); }
+.res { font-size: 13.5px; }
+.sent .ans { border-top: 1px solid var(--line); padding: 8px 0 2px; }
+.sent .ans .who { font-weight: 700; } .sent .ans .when { color: var(--faint); font-size: 12px; margin-left: 8px; }
+.sent .ans .txt { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; font-size: 14.5px; }
+.sent .waiting { color: var(--faint); font-size: 13px; padding: 6px 0; }
+.sent-h { margin-top: 30px; }
+.res b { text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }
 
-main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) 300px; gap: 16px; padding: 16px; }
-section { min-width: 0; }
-section > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 4px 0 10px; display: flex; gap: 8px; align-items: center; }
-section > h2 .count { background: var(--panel2); border-radius: 99px; padding: 0 8px; color: var(--text); }
+/* ---- bus ---- */
+.ev { position: relative; display: grid; grid-template-columns: 52px 1fr; gap: 10px; padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: 14px; cursor: pointer; }
+.ev:hover { background: var(--surface2); }
+.ev .ts { color: var(--faint); font-variant-numeric: tabular-nums; font-size: 12.5px; padding-top: 1px; }
+.ev .head { color: var(--muted); font-size: 13px; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.ev .head b { color: var(--fg); }
+.ev .k { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; border: 1px solid var(--line); padding: 0 5px; }
+.ev .txt { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
+.ev.status .txt { color: var(--muted); }
+.ev.op .head b { text-decoration: underline; text-underline-offset: 3px; }
+.ev.ask, .ev.halt { border-left: 6px solid transparent; border-image: repeating-linear-gradient(135deg, var(--fg) 0 2px, transparent 2px 5px) 6; }
+.ev .re { position: absolute; top: 8px; right: 6px; color: var(--faint); font-size: 12px; visibility: hidden; background: var(--surface2); padding-left: 6px; }
+.ev:hover .re { visibility: visible; }
 
-.card {
-  background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--faint);
-  border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
-}
-.card.ask { border-left-color: var(--ask); }
-.card.request { border-left-color: var(--req); }
-.card.note { border-left-color: var(--note); }
-.card.flash { outline: 2px solid var(--accent); }
-.card .top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 13px; color: var(--dim); }
-.badge { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 1px 7px; border-radius: 99px; }
-.badge.ask { background: color-mix(in srgb, var(--ask) 22%, transparent); color: var(--ask); }
-.badge.request { background: color-mix(in srgb, var(--req) 22%, transparent); color: var(--req); }
-.badge.note { background: color-mix(in srgb, var(--note) 22%, transparent); color: var(--note); }
-.from { color: var(--text); font-weight: 600; }
-.body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
-.dflt { font-size: 13px; color: var(--dim); background: var(--panel2); border-radius: 8px; padding: 6px 10px; margin: 6px 0; }
-.dflt b { color: var(--text); font-weight: 600; }
-.countdown { font-variant-numeric: tabular-nums; color: var(--ask); font-weight: 600; }
-.actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-.actions textarea { flex: 1 1 100%; }
-.empty { color: var(--faint); padding: 18px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
-details.closed summary { cursor: pointer; color: var(--dim); font-size: 13px; margin: 10px 0; }
-.card.done { opacity: .65; }
-.res { font-size: 13px; color: var(--ok); }
+/* ---- compose: the operator's desk ---- */
+aside#side { align-self: start; position: sticky; top: 72px; }
+.desk { border: 2px solid var(--fg); background: var(--surface); padding: 16px; box-shadow: var(--shadow); }
+.desk h2 { font-family: var(--f-display); font-size: 15px; letter-spacing: .14em; text-transform: uppercase; margin: 0 0 14px; }
+.field { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: start; margin-bottom: 12px; }
+.field > .lbl { padding-top: 5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 132px; overflow-y: auto; }
+.chip { font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; cursor: pointer; background: transparent; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip:hover { border-color: var(--fg); color: var(--fg); }
+.chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 700; }
+.chip.np { border-style: dashed; }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--fg); }
+.seg button { background: transparent; border: 0; border-left: 1px solid var(--fg); padding: 6px 4px; cursor: pointer; font-size: 13.5px; }
+.seg button:first-child { border-left: 0; }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 700; }
+.kindhint { grid-column: 2; font-size: 12.5px; color: var(--muted); margin-top: -4px; }
+#msg { min-height: 140px; font-size: 15.5px; line-height: 1.5; }
+.sendrow { display: grid; gap: 6px; margin-top: 10px; }
+#sendBtn { padding: 12px 14px; font-size: 16px; letter-spacing: .06em; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+#sendBtn .to { font-weight: 400; text-transform: none; letter-spacing: 0; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kbd { font-size: 12px; color: var(--muted); text-align: right; }
+.control { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.control .btn { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.feed { font-size: 13.5px; }
-.ev { padding: 7px 10px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 48px 1fr; gap: 8px; }
-.ev .ts { color: var(--faint); font-variant-numeric: tabular-nums; font-size: 12px; padding-top: 1px; }
-.ev .who { color: var(--dim); }
-.ev .who b { color: var(--text); font-weight: 600; }
-.ev .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); }
-.ev.op .who b { color: var(--accent); }
-.ev.halt, .ev.ask { background: color-mix(in srgb, var(--ask) 8%, transparent); }
-.ev .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
-.feed-tools { display: flex; gap: 12px; align-items: center; font-size: 13px; color: var(--dim); margin-bottom: 8px; }
-.feed-tools label { display: flex; gap: 6px; align-items: center; }
-.feed-tools input { width: auto; }
+.sessions { margin-top: 22px; }
+.sess { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: center; padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: 14px; cursor: pointer; }
+.sess:hover { background: var(--surface2); }
+.sess .h { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess .st { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.sess.off { color: var(--faint); }
+.foot { margin-top: 16px; display: flex; gap: 4px; flex-wrap: wrap; font-size: 12.5px; }
 
-.sess { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
-.sess .h { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sess .st { color: var(--dim); font-size: 12px; }
-.sess .np { color: var(--req); font-size: 11px; }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; margin-bottom: 14px; }
-.panel .row { display: flex; gap: 8px; margin-top: 8px; }
-.hint { color: var(--faint); font-size: 12px; margin-top: 6px; }
-
-#login { max-width: 360px; margin: 18vh auto; padding: 0 16px; }
-#login h1 { font-size: 22px; } #login h1 span { color: var(--accent); }
-#toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line); padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100vw - 32px); }
+/* ---- login / toast ---- */
+#login { max-width: 420px; margin: 18vh auto; padding: 0 var(--gutter); }
+#login .wordmark { font-size: 34px; }
+#login p { color: var(--muted); }
+#login .row { display: flex; gap: 8px; margin-top: 10px; }
+#toast { position: fixed; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 16px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100vw - 32px); z-index: 20; }
 #toast.show { opacity: 1; }
 
-@media (max-width: 980px) {
-  main { grid-template-columns: 1fr; padding: 12px 16px; }
+@media (max-width: 1180px) {
+  main { grid-template-columns: minmax(0, 1fr) 360px; }
+  #inbox { grid-column: 1; grid-row: 1; } #feed { grid-column: 1; grid-row: 2; }
+  aside#side { grid-column: 2; grid-row: 1 / span 2; }
+}
+@media (max-width: 820px) {
+  main { grid-template-columns: minmax(0, 1fr); padding-top: 14px; }
   nav.tabs { display: flex; }
-  main > section { display: none; }
-  main > section.active { display: block; }
+  main > section, main > aside { display: none; grid-column: auto !important; grid-row: auto !important; }
+  main > .active { display: block; }
+  aside#side { position: static; }
+  .desk { box-shadow: none; }
+  header.top .wide { display: none; }
 }
 </style>
+<link rel="stylesheet" href="/brand.css">
 </head>
 <body>
 <div id="login" hidden>
-  <h1>orche<span>stra</span></h1>
-  <p style="color:var(--dim)">Paste your operator token (from <code>tokens.json</code> on the server). It's kept as a cookie on this device.</p>
+  <h1 class="wordmark">orchestra</h1>
+  <p>Paste your operator token. It's kept as a cookie on this device.</p>
   <form onsubmit="login(event)">
     <input id="tok" type="password" autocomplete="current-password" placeholder="token" required>
-    <div class="row" style="margin-top:10px"><button class="primary" type="submit">Sign in</button></div>
+    <div class="row"><button class="btn primary" type="submit">Sign in</button></div>
   </form>
 </div>
 
 <div id="app" hidden>
-  <header>
-    <h1>orche<span>stra</span></h1>
-    <span class="dot" id="live" title="stream"></span>
-    <span class="meta" id="meta"></span>
+  <header class="top">
+    <h1 class="wordmark">orchestra</h1>
+    <div class="eyebrow"><span class="dot" id="live" title="live stream"></span><span id="meta"></span></div>
     <span class="spacer"></span>
-    <button id="pushBtn" onclick="enablePush()">🔔 Enable push</button>
-    <button class="danger" onclick="haltAll()">⏸ Halt all</button>
-    <button onclick="resumeAll()">▶ Resume</button>
+    <div class="eyebrow">
+      <button class="btn ghost" id="pushBtn" onclick="enablePush()">enable push</button>
+      <button class="btn ghost" onclick="cycleTheme()" title="theme: system → flip → system">theme</button>
+    </div>
   </header>
   <nav class="tabs">
     <button data-tab="inbox" class="active">Inbox <span id="tabInbox"></span></button>
-    <button data-tab="feed">Feed</button>
-    <button data-tab="side">Sessions</button>
+    <button data-tab="feed">Bus</button>
+    <button data-tab="side">Send</button>
   </nav>
   <main>
     <section id="inbox" class="active">
-      <h2>Inbox <span class="count" id="openCount">0</span></h2>
+      <div class="sec-h"><h2>Inbox</h2><span class="n" id="openCount"></span></div>
       <div id="open"></div>
-      <details class="closed"><summary>Recently closed</summary><div id="closed"></div></details>
+      <details class="closed"><summary>recently closed</summary><div id="closed" style="margin-top:12px"></div></details>
+      <div class="sec-h sent-h"><h2>Your requests</h2><span class="n" id="sentCount"></span></div>
+      <div id="sent"></div>
     </section>
+
     <section id="feed">
-      <h2>Bus</h2>
-      <div class="feed-tools">
-        <label><input type="checkbox" id="hideStatus"> hide status</label>
-        <label><input type="checkbox" id="onlyMine"> only to/from me</label>
-      </div>
-      <div class="feed" id="events"></div>
-    </section>
-    <section id="side">
-      <div class="panel">
-        <h2 style="margin-top:0">Send</h2>
-        <select id="to"></select>
-        <textarea id="msg" placeholder="notice to sessions…" style="margin-top:8px" rows="3"></textarea>
-        <div class="row">
-          <select id="sendKind" style="flex:1"><option value="notice">notice</option><option value="request">request (wants reply)</option><option value="info">info</option></select>
-          <button class="primary" onclick="send()">Send</button>
+      <div class="sec-h"><h2>Bus</h2>
+        <div class="tools">
+          <label><input type="checkbox" id="hideStatus"> hide status</label>
+          <label><input type="checkbox" id="onlyMine"> mine</label>
         </div>
-        <div class="hint">Ctrl/⌘+Enter sends. Notices are pushed into the session as a turn.</div>
       </div>
-      <h2>Sessions <span class="count" id="liveCount">0</span></h2>
-      <div id="sessions"></div>
-      <div class="hint" style="margin-top:12px"><a href="#" onclick="testPush();return false" style="color:var(--dim)">send test push</a> · <a href="#" onclick="logout();return false" style="color:var(--dim)">sign out</a></div>
+      <div id="events"></div>
     </section>
+
+    <aside id="side">
+      <div class="desk">
+        <h2>Send</h2>
+        <div class="field"><span class="lbl">to</span><div class="chips" id="toChips"></div></div>
+        <div class="field"><span class="lbl">as</span>
+          <div class="seg" id="kindSeg">
+            <button data-kind="notice" aria-pressed="true">notice</button>
+            <button data-kind="request" aria-pressed="false">request</button>
+            <button data-kind="info" aria-pressed="false">info</button>
+          </div>
+          <div class="kindhint" id="kindHint"></div>
+        </div>
+        <textarea id="msg" placeholder="write to the sessions…"></textarea>
+        <div class="sendrow">
+          <button class="btn primary" id="sendBtn" onclick="send()"><span>Send</span><span class="to" id="sendTo">notice → @all</span></button>
+          <div class="kbd">ctrl/⌘ + enter</div>
+        </div>
+        <div class="control">
+          <button class="btn" id="haltBtn" onclick="haltSel()">⏸ halt @all</button>
+          <button class="btn" id="resumeBtn" onclick="resumeSel()">▶ resume @all</button>
+        </div>
+      </div>
+      <div class="sessions">
+        <div class="sec-h"><h2>Sessions</h2><span class="n" id="liveCount"></span></div>
+        <div id="sessions"></div>
+      </div>
+      <div class="foot">
+        <button class="btn ghost" onclick="testPush()">send test push</button>
+        <button class="btn ghost" onclick="logout()">sign out</button>
+      </div>
+    </aside>
   </main>
 </div>
 <div id="toast"></div>
@@ -176,7 +271,15 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 let state = null, events = [], es = null, pubKey = null;
 const OP = () => (state && state.operator) || "operator";
 const drafts = {};
+const compose = { to: "@all", kind: "notice" };
+const KIND_HINT = {
+  notice: "pushed into the session as a turn; carries your authority",
+  request: "pushed; asks for a reply; answers collect under Your requests",
+  info: "pushed; context for the sessions, no reply expected",
+};
 
+function store(k, v) { try { v === undefined ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
+function recall(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove("show"), 2600); }
 
 async function api(path, opts = {}) {
@@ -185,6 +288,7 @@ async function api(path, opts = {}) {
   if (!r.ok) { let d = r.statusText; try { d = (await r.json()).detail || d; } catch {} throw new Error(d); }
   return r.json();
 }
+const post = (body) => api("/api/events", { method: "POST", body: JSON.stringify({ from: "operator", ...body }) });
 
 function showLogin() { $("#app").hidden = true; $("#login").hidden = false; if (es) es.close(); }
 async function login(e) {
@@ -194,8 +298,16 @@ async function login(e) {
 }
 async function logout() { await api("/api/logout", { method: "POST" }); showLogin(); }
 
+// ---- theme: follow the system, or pin one; stored per device ----
+function applyTheme() { const t = recall("orc-theme"); if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; }
+function cycleTheme() {
+  const cur = recall("orc-theme");
+  const next = cur === null ? (matchMedia("(prefers-color-scheme: dark)").matches ? "light" : "dark") : null;
+  store("orc-theme", next ?? undefined); applyTheme(); toast(next ? `${next} theme` : "following system theme");
+}
+
 // ---- time ----
-function hhmm(iso) { const d = new Date(iso); return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+const hhmm = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 function ago(iso) {
   const s = (Date.now() - new Date(iso)) / 1000;
   if (s < 60) return "just now"; if (s < 3600) return Math.floor(s / 60) + "m ago";
@@ -205,55 +317,79 @@ function left(iso) {
   const s = Math.round((new Date(iso) - Date.now()) / 1000);
   if (s <= 0) return "defaulting…";
   const m = Math.floor(s / 60), h = Math.floor(m / 60);
-  return h ? `${h}h ${m % 60}m left` : m ? `${m}m ${s % 60}s left` : `${s}s left`;
+  return (h ? `${h}h ${m % 60}m` : m ? `${m}m ${String(s % 60).padStart(2, "0")}s` : `${s}s`) + " to default";
+}
+function tickCountdowns() {
+  document.querySelectorAll(".countdown").forEach((el) => {
+    el.textContent = left(el.dataset.deadline);
+    el.classList.toggle("soon", new Date(el.dataset.deadline) - Date.now() < 10 * 60 * 1000);
+  });
 }
 
 // ---- inbox ----
 function threadCard(t, closed) {
-  const kind = t.kind;
-  const topic = t.topic ? ` · <span>#${esc(t.topic)}</span>` : "";
+  const k = t.kind;
+  const topic = t.topic ? `<span>#${esc(t.topic)}</span>` : "";
   let extra = "";
-  if (kind === "ask") {
-    extra = `<div class="dflt">default: <b>${esc(t.default)}</b>${t.revert_cost ? ` · revert: ${esc(t.revert_cost)}` : ""}</div>`;
-    if (!closed) extra += `<div class="countdown" data-deadline="${esc(t.deadline)}">${left(t.deadline)}</div>`;
+  if (k === "ask") {
+    extra = `<div class="dflt"><span class="k">default</span><span><b>${esc(t.default)}</b></span>${t.revert_cost ? `<span class="k">revert</span><span>${esc(t.revert_cost)}</span>` : ""}</div>`;
+    if (!closed) extra += `<span class="countdown" data-deadline="${esc(t.deadline)}">${left(t.deadline)}</span>`;
   }
-  let actions = "";
+  let foot;
   if (!closed) {
-    const ph = kind === "note" ? "reply (optional)…" : "your answer…";
-    actions = `<div class="actions">
+    const ph = k === "note" ? "reply (optional)…" : "your answer…";
+    foot = `<div class="reply">
       <textarea data-draft="${t.id}" rows="2" placeholder="${ph}">${esc(drafts[t.id] || "")}</textarea>
-      <button class="primary" onclick="answer('${t.id}')">${kind === "note" ? "Reply" : "Answer"}</button>
-      ${kind === "ask" ? `<button onclick="takeDefault('${t.id}')">Take default</button>` : ""}
-      <button onclick="ack('${t.id}')">${kind === "note" ? "Seen ✓" : "Ack"}</button>
-    </div>`;
+      <div class="row">
+        <button class="btn primary" onclick="answer('${t.id}')">${k === "note" ? "reply" : "answer"}</button>
+        ${k === "ask" ? `<button class="btn" onclick="takeDefault('${t.id}')">take default</button>` : ""}
+        <span class="spacer"></span>
+        <button class="btn ghost" onclick="ack('${t.id}')">${k === "note" ? "seen" : "ack"}</button>
+      </div></div>`;
   } else {
-    actions = `<div class="res">${esc(t.status)}${t.resolution ? ": " + esc(t.resolution) : ""} · ${ago(t.resolved_at || t.ts)}</div>`;
+    foot = `<div class="res"><b>${esc(t.status)}</b>${t.resolution ? " · " + esc(t.resolution) : ""} · ${ago(t.resolved_at || t.ts)}</div>`;
   }
-  return `<div class="card ${kind}${closed ? " done" : ""}" id="t-${t.id}">
-    <div class="top"><span class="badge ${kind}">${kind}</span><span class="from">${esc(t.from)}</span>${topic}<span>· ${ago(t.ts)}</span><span style="margin-left:auto;color:var(--faint)">${t.id}</span></div>
-    <div class="body">${esc(t.body)}</div>${extra}${actions}</div>`;
+  return `<div class="card ${k}${closed ? " done" : ""}" id="t-${t.id}">
+    <div class="meta"><span class="tag ${k}">${k}</span><span class="who">${esc(t.from)}</span>${topic}<span>${ago(t.ts)}</span><span class="id">${t.id}</span></div>
+    <div class="body">${esc(t.body)}</div>${extra}${foot}</div>`;
 }
-
 function renderInbox() {
   const open = state.inbox.open, closed = state.inbox.closed;
-  $("#open").innerHTML = open.length ? open.map((t) => threadCard(t, false)).join("") : `<div class="empty">inbox zero ✨ everyone's cooking</div>`;
+  $("#open").innerHTML = open.length ? open.map((t) => threadCard(t, false)).join("") : `<div class="empty">inbox zero — everyone's cooking</div>`;
   $("#closed").innerHTML = closed.map((t) => threadCard(t, true)).join("") || `<div class="empty">nothing yet</div>`;
-  $("#openCount").textContent = open.length;
   const asks = open.filter((t) => t.kind === "ask").length;
-  $("#tabInbox").textContent = open.length ? `${open.length}${asks ? "⏳" : ""}` : "";
+  $("#openCount").textContent = open.length ? `${open.length} open${asks ? ` · ${asks} ask${asks > 1 ? "s" : ""}` : ""}` : "";
+  $("#tabInbox").textContent = open.length ? `(${open.length})` : "";
   document.title = open.length ? `(${open.length}) orchestra` : "orchestra";
   document.querySelectorAll("textarea[data-draft]").forEach((ta) => {
     ta.oninput = () => (drafts[ta.dataset.draft] = ta.value);
     ta.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) answer(ta.dataset.draft); };
   });
-  flashHash();
+  renderSent();
+  tickCountdowns(); flashHash();
 }
-
+function sentCard(t) {
+  const answers = (t.answers && t.answers.length) ? t.answers
+    : (t.status === "answered" ? [{ from: t.resolved_by, body: t.resolution, ts: t.resolved_at }] : []);
+  const list = answers.length
+    ? answers.map((a) => `<div class="ans"><span class="who">${esc(a.from)}</span><span class="when">${a.ts ? ago(a.ts) : ""}</span><div class="txt">${esc(a.body)}</div></div>`).join("")
+    : `<div class="waiting">no answers yet</div>`;
+  const open = t.status === "open";
+  const tail = open ? `<div class="reply"><div class="row"><span class="spacer"></span><button class="btn" onclick="ack('${t.id}')">close</button></div></div>`
+    : `<div class="res"><b>${esc(t.status)}</b> · ${ago(t.resolved_at || t.ts)}</div>`;
+  return `<div class="card request sent${open ? "" : " done"}" id="t-${t.id}">
+    <div class="meta"><span class="tag">${esc(t.kind)}</span><span class="who">→ ${esc(t.to)}</span><span>${ago(t.ts)}</span><span>${answers.length} answer${answers.length === 1 ? "" : "s"}</span><span class="id">${t.id}</span></div>
+    <div class="body">${esc(t.body)}</div>${list}${tail}</div>`;
+}
+function renderSent() {
+  const sent = state.inbox.sent || [];
+  const open = sent.filter((t) => t.status === "open").length;
+  $("#sentCount").textContent = sent.length ? `${open} open` : "";
+  $("#sent").innerHTML = sent.length ? sent.map(sentCard).join("") : `<div class="empty">send a request from the desk and answers collect here</div>`;
+}
 async function closeThread(kind, id, body) {
-  try {
-    await api("/api/events", { method: "POST", body: JSON.stringify({ from: "operator", kind, ref: id, body }) });
-    delete drafts[id]; await refresh(); toast(kind === "answer" ? "sent ✓" : "closed ✓");
-  } catch (e) { toast("failed: " + e.message); }
+  try { await post({ kind, ref: id, body }); delete drafts[id]; await refresh(); toast(kind === "answer" ? "sent" : "closed"); }
+  catch (e) { toast("failed: " + e.message); }
 }
 function answer(id) {
   const body = (drafts[id] || "").trim();
@@ -264,14 +400,15 @@ function answer(id) {
 function takeDefault(id) { const t = state.inbox.open.find((x) => x.id === id); closeThread("answer", id, `take the default: ${t ? t.default : ""}`); }
 function ack(id) { closeThread("ack", id, (drafts[id] || "").trim()); }
 
-// ---- feed ----
+// ---- bus ----
 function evRow(e) {
-  const ref = e.ref ? ` <span style="color:var(--faint)">re ${esc(e.ref)}</span>` : "";
-  const topic = e.topic ? ` <span style="color:var(--faint)">#${esc(e.topic)}</span>` : "";
+  const ref = e.ref ? `<span>re ${esc(e.ref)}</span>` : "";
+  const topic = e.topic ? `<span>#${esc(e.topic)}</span>` : "";
   const extra = e.kind === "ask" ? `\n→ default: ${e.default}` : "";
-  return `<div class="ev ${e.from === OP() ? "op" : ""} ${esc(e.kind)}">
+  const cls = [e.kind, e.from === OP() ? "op" : ""].join(" ");
+  return `<div class="ev ${esc(cls)}" data-from="${esc(e.from)}" title="click to address ${esc(e.from)}">
     <div class="ts" title="${esc(e.ts)}">${hhmm(e.ts)}</div>
-    <div><div class="who"><b>${esc(e.from)}</b> → ${esc(e.to)} <span class="k">${esc(e.kind)}</span>${ref}${topic}</div>
+    <div><div class="head"><b>${esc(e.from)}</b><span>→ ${esc(e.to)}</span><span class="k">${esc(e.kind)}</span>${ref}${topic}<span class="re">↩ address</span></div>
     <div class="txt">${esc(e.body)}${esc(extra)}</div></div></div>`;
 }
 function renderFeed() {
@@ -279,59 +416,75 @@ function renderFeed() {
   const shown = events.filter((e) => (!hide || e.kind !== "status") && (!mine || e.from === OP() || e.to === "@" + OP()));
   $("#events").innerHTML = shown.slice(-300).reverse().map(evRow).join("") || `<div class="empty">quiet bus</div>`;
 }
+$("#events").addEventListener("click", (e) => {
+  const row = e.target.closest(".ev"); if (!row) return;
+  const from = row.dataset.from;
+  if (from && from !== OP() && from !== "orchestra") { setTo("@" + from); focusCompose(); }
+});
 
-// ---- sessions ----
+// ---- sessions + compose ----
 function renderSessions() {
-  const ps = state.presence;
-  const live = ps.filter((p) => p.live);
-  $("#liveCount").textContent = live.length;
-  $("#sessions").innerHTML = ps.length ? ps.map((p) => `<div class="sess">
-      <span class="dot ${p.live ? "on" : ""}"></span>
-      <span class="h" title="${esc(p.cwd || "")}">${esc(p.handle)}</span>
-      ${p.channel ? "" : `<span class="np" title="no push lane: launched without the channel flag">no push</span>`}
-      <span class="st">${p.live ? esc(p.status || "") : ago(p.last_seen)}</span></div>`).join("")
+  const ps = state.presence, live = ps.filter((p) => p.live);
+  $("#liveCount").textContent = `${live.length} live`;
+  $("#sessions").innerHTML = ps.length ? ps.map((p) => `<div class="sess${p.live ? "" : " off"}" data-h="${esc(p.handle)}" title="${esc(p.cwd || "")}">
+      <span class="dot ${p.live ? "on" : ""}"></span><span class="h">${esc(p.handle)}</span>
+      <span class="st">${p.live ? (p.channel ? esc(p.status || "") : "no push") : ago(p.last_seen)}</span></div>`).join("")
     : `<div class="empty">no sessions have checked in</div>`;
-  const sel = $("#to"), cur = sel.value;
-  sel.innerHTML = `<option value="@all">@all (everyone)</option>` + live.map((p) => `<option value="@${esc(p.handle)}">@${esc(p.handle)}</option>`).join("");
-  if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
+  document.querySelectorAll(".sess").forEach((el) => (el.onclick = () => { setTo("@" + el.dataset.h); focusCompose(); }));
+  $("#toChips").innerHTML = [`<button class="chip" data-to="@all">@all</button>`]
+    .concat(live.map((p) => `<button class="chip${p.channel ? "" : " np"}" data-to="@${esc(p.handle)}"${p.channel ? "" : ` title="no push lane: launched without the channel flag"`}>@${esc(p.handle)}</button>`)).join("");
+  document.querySelectorAll("#toChips .chip").forEach((c) => (c.onclick = () => setTo(c.dataset.to)));
+  paintCompose();
   const pushOk = state.push && state.push.subscriptions > 0;
-  $("#meta").textContent = `${live.length} live · bus #${state.head}${pushOk ? "" : " · push off"}`;
+  $("#meta").innerHTML = `<span>${live.length} live</span><span class="wide"> · bus #${state.head}</span><span> · push ${pushOk ? "on" : "off"}</span>`;
 }
-
+function setTo(to) { compose.to = to; paintCompose(); }
+function setKind(k) { compose.kind = k; paintCompose(); }
+function paintCompose() {
+  const chips = [...document.querySelectorAll("#toChips .chip")];
+  if (chips.length && !chips.some((c) => c.dataset.to === compose.to)) compose.to = "@all";  // recipient went away
+  chips.forEach((c) => c.setAttribute("aria-pressed", c.dataset.to === compose.to));
+  document.querySelectorAll("#kindSeg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.kind === compose.kind));
+  $("#kindHint").textContent = KIND_HINT[compose.kind];
+  $("#sendTo").textContent = `${compose.kind} → ${compose.to}`;
+  $("#haltBtn").textContent = `⏸ halt ${compose.to}`;
+  $("#resumeBtn").textContent = `▶ resume ${compose.to}`;
+}
+function focusCompose() {
+  if (matchMedia("(max-width: 820px)").matches) showTab("side");
+  $("#msg").focus();
+}
+document.querySelectorAll("#kindSeg button").forEach((b) => (b.onclick = () => setKind(b.dataset.kind)));
 async function send() {
-  const body = $("#msg").value.trim(); if (!body) return;
-  try {
-    await api("/api/events", { method: "POST", body: JSON.stringify({ from: "operator", to: $("#to").value, kind: $("#sendKind").value, body }) });
-    $("#msg").value = ""; toast("sent ✓");
-  } catch (e) { toast("failed: " + e.message); }
+  const body = $("#msg").value.trim(); if (!body) { $("#msg").focus(); return toast("nothing to send"); }
+  $("#sendBtn").disabled = true;
+  try { await post({ to: compose.to, kind: compose.kind, body }); $("#msg").value = ""; store("orc-draft"); toast(`${compose.kind} sent → ${compose.to}`); }
+  catch (e) { toast("failed: " + e.message); }
+  finally { $("#sendBtn").disabled = false; }
 }
-async function haltAll() {
-  const why = prompt("Halt everyone? Reason (optional):", "");
-  if (why === null) return;
-  await api("/api/events", { method: "POST", body: JSON.stringify({ from: "operator", to: "@all", kind: "halt", body: why }) });
-  toast("halt sent");
+async function haltSel() {
+  const why = prompt(`Halt ${compose.to}? Reason (optional):`, ""); if (why === null) return;
+  try { await post({ to: compose.to, kind: "halt", body: why }); toast(`halt → ${compose.to}`); } catch (e) { toast(e.message); }
 }
-async function resumeAll() {
-  const msg = prompt("Resume everyone. Message (optional):", "");
-  if (msg === null) return;
-  await api("/api/events", { method: "POST", body: JSON.stringify({ from: "operator", to: "@all", kind: "resume", body: msg }) });
-  toast("resume sent");
+async function resumeSel() {
+  const msg = prompt(`Resume ${compose.to}. Message (optional):`, ""); if (msg === null) return;
+  try { await post({ to: compose.to, kind: "resume", body: msg }); toast(`resume → ${compose.to}`); } catch (e) { toast(e.message); }
 }
+$("#msg").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); });
+$("#msg").addEventListener("input", () => store("orc-draft", $("#msg").value));
 
 // ---- push ----
 function b64ToBytes(b64) { const p = "=".repeat((4 - (b64.length % 4)) % 4); const raw = atob((b64 + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(raw, (c) => c.charCodeAt(0)); }
-async function swReg() { return navigator.serviceWorker.register("/sw.js", { scope: "/" }); }
+const swReg = () => navigator.serviceWorker.register("/sw.js", { scope: "/" });
 async function enablePush() {
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) return toast("this browser can't do web push");
   if (!pubKey) return toast("server has no push key");
   try {
-    const perm = await Notification.requestPermission();
-    if (perm !== "granted") return toast("notifications not allowed");
+    if ((await Notification.requestPermission()) !== "granted") return toast("notifications not allowed");
     const reg = await swReg();
-    let sub = await reg.pushManager.getSubscription();
-    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(pubKey) });
+    const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(pubKey) }));
     await api("/api/push/subscribe", { method: "POST", body: JSON.stringify(sub.toJSON()) });
-    toast("push on for this device 🔔"); updatePushBtn(); refresh();
+    toast("push on for this device"); updatePushBtn(); refresh();
   } catch (e) { toast("push failed: " + e.message); }
 }
 async function updatePushBtn() {
@@ -339,7 +492,7 @@ async function updatePushBtn() {
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) { btn.hidden = true; return; }
   const reg = await navigator.serviceWorker.getRegistration("/");
   const sub = reg && (await reg.pushManager.getSubscription());
-  btn.textContent = sub && Notification.permission === "granted" ? "🔔 Push on" : "🔔 Enable push";
+  btn.textContent = sub && Notification.permission === "granted" ? "push on" : "enable push";
 }
 async function testPush() { try { const r = await api("/api/push/test", { method: "POST" }); toast(`test push → ${r.delivered} device(s)`); } catch (e) { toast(e.message); } }
 
@@ -354,7 +507,7 @@ function connect() {
     if (events.length && e.seq <= events[events.length - 1].seq) return;
     events.push(e); renderFeed();
     if (["ask", "request", "note", "answer", "ack", "defaulted", "withdraw"].includes(e.kind)) refresh();
-    else { state.head = e.seq; renderSessions(); }
+    else state.head = e.seq;
   });
   es.onopen = () => $("#live").classList.add("on");
   es.onerror = () => $("#live").classList.remove("on");
@@ -362,25 +515,26 @@ function connect() {
 function flashHash() {
   const m = location.hash.match(/t=([\w-]+)/); if (!m) return;
   const el = document.getElementById("t-" + m[1]); if (!el) return;
-  el.classList.add("flash"); el.scrollIntoView({ block: "center" }); setTimeout(() => el.classList.remove("flash"), 2500);
+  showTab("inbox"); el.classList.add("flash"); el.scrollIntoView({ block: "center" }); setTimeout(() => el.classList.remove("flash"), 2500);
   history.replaceState(null, "", location.pathname);
 }
+function showTab(id) {
+  document.querySelectorAll("nav.tabs button").forEach((x) => x.classList.toggle("active", x.dataset.tab === id));
+  document.querySelectorAll("main > section, main > aside").forEach((s) => s.classList.toggle("active", s.id === id));
+}
+document.querySelectorAll("nav.tabs button").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+$("#hideStatus").onchange = renderFeed; $("#onlyMine").onchange = renderFeed;
 
 async function boot() {
   try { await refresh(); } catch { return; }
   $("#login").hidden = true; $("#app").hidden = false;
+  const draft = recall("orc-draft"); if (draft && !$("#msg").value) $("#msg").value = draft;
   const d = await api(`/api/events?after=${Math.max(0, state.head - 300)}&limit=300`);
   events = d.events; renderFeed(); connect(); updatePushBtn();
   if ("serviceWorker" in navigator) swReg().catch(() => {});
 }
-
-document.querySelectorAll("nav.tabs button").forEach((b) => b.onclick = () => {
-  document.querySelectorAll("nav.tabs button").forEach((x) => x.classList.toggle("active", x === b));
-  document.querySelectorAll("main > section").forEach((s) => s.classList.toggle("active", s.id === b.dataset.tab));
-});
-$("#hideStatus").onchange = renderFeed; $("#onlyMine").onchange = renderFeed;
-$("#msg").onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); };
-setInterval(() => { document.querySelectorAll(".countdown").forEach((el) => (el.textContent = left(el.dataset.deadline))); }, 1000);
+applyTheme();
+setInterval(tickCountdowns, 1000);
 setInterval(() => { if (state) refresh().catch(() => {}); }, 30000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden && state) refresh().catch(() => {}); });
 window.addEventListener("hashchange", flashHash);

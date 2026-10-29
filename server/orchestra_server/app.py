@@ -149,13 +149,13 @@ def create_app(settings: Settings) -> FastAPI:
             thread = bus.threads.get(post.ref or "")
             if thread is None:
                 raise HTTPException(422, f"{post.kind} needs ref= an existing ask/request/note id")
-            if thread.status != "open":
+            if thread.status != "open" and not (thread.to == "@all" and post.kind == "answer"):
                 raise HTTPException(409, f"{thread.id} is already {thread.status}")
             if who == "agent":
                 if post.kind == "withdraw" and thread.from_ != post.from_:
                     raise HTTPException(403, "only the opener may withdraw a thread")
-                if post.kind == "answer" and thread.to != f"@{post.from_}":
-                    raise HTTPException(403, "sessions may only answer requests addressed to them")
+                if post.kind == "answer" and thread.to not in (f"@{post.from_}", "@all"):
+                    raise HTTPException(403, f"{thread.id} is addressed to {thread.to}, not you; use kind=reply to comment")
         if post.kind == "ask":
             if post.deadline is None or post.default is None:
                 raise HTTPException(422, "an ask needs default and deadline (invariant 1: nothing hard-blocks on a human)")
@@ -257,6 +257,24 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/icon.svg")
     async def icon() -> FileResponse:
         return FileResponse(STATIC / "icon.svg", media_type="image/svg+xml")
+
+    # Optional per-deployment branding: <data>/brand/brand.css (+ any fonts/images it
+    # references as /brand/<file>). Nothing ships in the repo; absent means the default look.
+    brand_dir = (settings.data_dir / "brand").resolve()
+
+    @app.get("/brand.css")
+    async def brand_css() -> Response:
+        f = brand_dir / "brand.css"
+        if f.is_file():
+            return FileResponse(f, media_type="text/css", headers={"Cache-Control": "no-cache"})
+        return Response("/* no brand.css */\n", media_type="text/css", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/brand/{name}")
+    async def brand_asset(name: str) -> FileResponse:
+        f = (brand_dir / name).resolve()
+        if f.parent != brand_dir or not f.is_file() or name.startswith("."):
+            raise HTTPException(404)
+        return FileResponse(f, headers={"Cache-Control": "public, max-age=604800"})
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:

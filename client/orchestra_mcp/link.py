@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from mcp.server.mcpserver.exceptions import ToolError
 
 from .identity import Identity, whoami
 
@@ -31,8 +32,8 @@ PEER_BROADCAST_PUSH = frozenset({"info", "request"})
 LOCAL_DEFAULT_GRACE = timedelta(seconds=90)
 
 
-class ConfigError(RuntimeError):
-    pass
+class ConfigError(ToolError):
+    """ToolError subclasses reach the model with their message; anything else is masked."""
 
 
 @dataclass(frozen=True)
@@ -215,7 +216,7 @@ class Link:
                 detail = r.json().get("detail")
             except Exception:
                 detail = r.text
-            raise ValueError(f"bus refused the post ({r.status_code}): {detail}")
+            raise ToolError(f"bus refused the post ({r.status_code}): {detail}")
         return r.json()
 
     async def flush_spool(self) -> int:
@@ -244,8 +245,16 @@ class Link:
         return sent
 
     async def get(self, path: str, **params: Any) -> dict:
-        r = await self.http().get(path, params=params)
-        r.raise_for_status()
+        try:
+            r = await self.http().get(path, params=params)
+        except httpx.TransportError as exc:
+            raise ToolError(f"bus unreachable ({type(exc).__name__}); try again shortly") from exc
+        if r.status_code >= 400:
+            try:
+                detail = r.json().get("detail")
+            except Exception:
+                detail = r.text[:300]
+            raise ToolError(f"bus refused ({r.status_code}): {detail}")
         return r.json()
 
     # -- background loops ----------------------------------------------------
