@@ -375,6 +375,7 @@ class Link:
                     "cwd": ident.cwd, "status": ident.status, "host": ident.host,
                     "channel": self.notify is not None,
                     **({"usage": usage.wire()} if usage else {}),
+                    **({"bridge": ident.bridge} if ident.bridge else {}),
                 })
             except Exception:
                 pass  # the stream loop owns connectivity reporting

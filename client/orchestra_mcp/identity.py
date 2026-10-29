@@ -33,7 +33,8 @@ class Identity:
     status: str | None
     pid: int | None
     host: str
-    source: str  # "env" | "session-registry" | "fallback"
+    source: str
+    bridge: str | None = None  # Remote Control session id, when the session has one  # "env" | "session-registry" | "fallback"
 
 
 def _ppid(pid: int) -> int | None:
@@ -87,4 +88,5 @@ def whoami() -> Identity:
         pid=data.get("pid"),
         host=host,
         source=source,
+        bridge=data.get("bridgeSessionId"),
     )

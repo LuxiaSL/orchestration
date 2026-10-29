@@ -175,6 +175,8 @@ class PresenceIn(BaseModel):
     host: str | None = None
     channel: bool = False
     usage: UsageIn | None = None
+    bridge: str | None = Field(default=None, pattern=r"^session_[A-Za-z0-9]{8,64}$",
+                               description="Remote Control session id: lets the operator open it in the Claude app")
 
     @field_validator("handle")
     @classmethod

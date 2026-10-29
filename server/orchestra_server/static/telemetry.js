@@ -157,6 +157,14 @@
     svg.append(hit);
     return svg;
   }
+  // A live session's Remote Control link, so a heavy context can be compacted from the Claude app.
+  function bridgeLink(handle) {
+    const st = window.orcState && window.orcState();
+    const p = st && st.presence && st.presence.find((x) => x.handle === handle && x.live && x.bridge);
+    if (!p) return null;
+    return el("a", { class: "rc", href: `https://claude.ai/code/${encodeURIComponent(p.bridge)}`, target: "_blank", rel: "noopener",
+                     title: "open in the Claude app: /compact works there", text: "open ↗ to compact" });
+  }
   function tokensCard(d, width) {
     const c = card("Tokens by session", `output tokens per ${bucketLabel(d.bucket_s)}, one shared scale · context is the latest prompt size`, true);
     if (!d.sessions.length) { c.append(el("div", { class: "empty", text: "no session has reported token usage yet (sessions report on their 60 s heartbeat)" })); return c; }
@@ -167,7 +175,7 @@
     for (const s of d.sessions) {
       const L = s.latest || {};
       c.append(el("div", { class: "sm" },
-        el("span", { class: "h", title: s.handle }, s.handle, el("small", { text: `${L.model || "?"} · ${fmtN(s.window.turns)} turns` })),
+        el("span", { class: "h", title: s.handle }, s.handle, el("small", { text: `${L.model || "?"} · ${fmtN(s.window.turns)} turns` }), bridgeLink(s.handle)),
         el("span", { class: "spark" }, spark(s, d, max, width < 1000 ? width - 40 : sparkW)),
         el("span", { class: "num", text: fmtN(s.window.output) }),
         el("span", { class: "num", text: fmtN(L.context) })));

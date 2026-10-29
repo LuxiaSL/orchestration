@@ -183,9 +183,12 @@ aside#side { align-self: start; position: sticky; top: 72px; }
 .control .btn { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .sessions { margin-top: 22px; }
-.sess { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: center; padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: 14px; cursor: pointer; }
+.sess { display: grid; grid-template-columns: 14px 1fr auto auto; gap: 8px; align-items: center; padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: 14px; cursor: pointer; }
 .sess:hover { background: var(--surface2); }
 .sess .h { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sm .rc { display: inline-block; margin-top: 3px; font-weight: 400; }
+.sess .rc, .sm .rc { font-size: 12px; color: var(--muted); text-decoration: none; border: 1px solid var(--line); padding: 0 6px; white-space: nowrap; }
+.sess .rc:hover, .sm .rc:hover { color: var(--fg); border-color: var(--fg); }
 .sess .st { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
 .sess.off { color: var(--faint); }
 .foot { margin-top: 16px; display: flex; gap: 4px; flex-wrap: wrap; font-size: 12.5px; }
@@ -688,10 +691,11 @@ function renderSessions() {
   const ps = state.presence, live = ps.filter((p) => p.live);
   $("#liveCount").textContent = `${live.length} live`;
   $("#sessions").innerHTML = ps.length ? ps.map((p) => `<div class="sess${p.live ? "" : " off"}" data-h="${esc(p.handle)}" title="${esc(p.cwd || "")}">
-      <span class="dot ${p.live ? "on" : ""}"></span><span class="h">${esc(p.handle)}</span>
+      <span class="dot ${p.live ? "on" : ""}"></span><span class="h">${esc(p.handle)}${p.usage && p.usage.context ? ` <span class="st">· ${fmtCtx(p.usage.context)} ctx</span>` : ""}</span>
+      ${p.bridge ? `<a class="rc" href="https://claude.ai/code/${encodeURIComponent(p.bridge)}" target="_blank" rel="noopener" title="open this session in the Claude app (Remote Control): /compact, /context, /model work there">open ↗</a>` : "<span></span>"}
       <span class="st">${p.live ? (p.channel ? esc(p.status || "") : "no push") : ago(p.last_seen)}</span></div>`).join("")
     : `<div class="empty">no sessions have checked in</div>`;
-  document.querySelectorAll(".sess").forEach((el) => (el.onclick = () => { setTo("@" + el.dataset.h); focusCompose(); }));
+  document.querySelectorAll(".sess").forEach((el) => (el.onclick = (e) => { if (e.target.closest("a")) return; setTo("@" + el.dataset.h); focusCompose(); }));
   $("#toChips").innerHTML = [`<button class="chip" data-to="@all">@all</button>`]
     .concat(live.map((p) => `<button class="chip${p.channel ? "" : " np"}" data-to="@${esc(p.handle)}"${p.channel ? "" : ` title="no push lane: launched without the channel flag"`}>@${esc(p.handle)}</button>`)).join("");
   document.querySelectorAll("#toChips .chip").forEach((c) => (c.onclick = () => setTo(c.dataset.to)));
@@ -699,6 +703,7 @@ function renderSessions() {
   const pushOk = state.push && state.push.subscriptions > 0;
   $("#meta").innerHTML = `<span>${live.length} live</span><span class="wide"> · bus #${state.head}</span><span> · push ${pushOk ? "on" : "off"}</span>`;
 }
+const fmtCtx = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "K" : String(n);
 function setTo(to) { compose.to = to; paintCompose(); }
 function setKind(k) { compose.kind = k; paintCompose(); }
 function paintCompose() {

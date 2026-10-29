@@ -190,11 +190,12 @@ class Bus:
         self.presence[p.handle] = pres
         return pres
 
-    def live_presence(self) -> list[dict]:
+    def live_presence(self, operator_view: bool = False) -> list[dict]:
         cutoff = now().timestamp() - PRESENCE_STALE_S
         out = []
         for p in sorted(self.presence.values(), key=lambda p: p.handle):
-            d = p.model_dump(mode="json")
+            # usage is telemetry and the bridge id opens the session: both are the operator's to see
+            d = p.model_dump(mode="json", exclude=None if operator_view else {"usage", "bridge"})
             d["live"] = p.last_seen.timestamp() >= cutoff
             out.append(d)
         return out

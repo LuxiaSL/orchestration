@@ -255,3 +255,14 @@ def test_telemetry_usage_and_volume(client):
     assert atlas["window"]["output"] == 250 + 40 and atlas["latest"]["context"] == 300
     assert t["latency"]["request"]["n"] == 1
     assert sum(b["total"] for b in t["volume"]) == 4
+
+
+def test_bridge_and_usage_are_operator_only(client):
+    client.post("/api/presence", headers=AGENT, json={"handle": "atlas", "session_id": "s1", "channel": True,
+        "bridge": "session_01AbCdEfGhIjKlMn", "usage": {"output": 5, "context": 1234, "turns": 1}})
+    op = client.get("/api/state", headers=OP).json()["presence"][0]
+    ag = client.get("/api/state", headers=AGENT).json()["presence"][0]
+    assert op["bridge"] == "session_01AbCdEfGhIjKlMn" and op["usage"]["context"] == 1234
+    assert "bridge" not in ag and "usage" not in ag
+    bad = client.post("/api/presence", headers=AGENT, json={"handle": "atlas", "bridge": "javascript:alert(1)"})
+    assert bad.status_code == 422

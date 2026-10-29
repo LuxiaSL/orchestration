@@ -235,7 +235,7 @@ def create_app(settings: Settings) -> FastAPI:
     async def state(who: Principal = Depends(principal)) -> dict:
         return {
             "head": bus.head, "you": who, "operator": settings.operator, "inbox": bus.inbox(),
-            "presence": bus.live_presence(),
+            "presence": bus.live_presence(operator_view=(who == "operator")),
             "push": {"public_key": pusher.public_key, "subscriptions": len(pusher.subs)} if who == "operator" else None,
         }
 
