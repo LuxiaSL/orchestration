@@ -11,7 +11,7 @@ import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -206,7 +206,10 @@ def create_app(settings: Settings) -> FastAPI:
         return ev.wire()
 
     @app.get("/api/events")
-    async def list_events(after: int = 0, limit: int = 200, _: Principal = Depends(principal)) -> dict:
+    async def list_events(after: int = 0, limit: int = 200, since_ts: datetime | None = None,
+                          _: Principal = Depends(principal)) -> dict:
+        if since_ts is not None:  # jump by time: start after the last event at or before it
+            after = max(after, bus.seq_at(since_ts))
         evs = bus.since(after, limit=min(max(limit, 1), 2000))
         return {"head": bus.head, "events": [e.wire() for e in evs]}
 
@@ -241,13 +244,21 @@ def create_app(settings: Settings) -> FastAPI:
         return {"q": q, "count": len(evs), "events": [e.wire() for e in evs]}
 
     @app.get("/api/threads")
-    async def list_threads(opened_by: str, status: str = "open", _: Principal = Depends(principal)) -> dict:
-        """A handle's own asks/requests/notes, e.g. what a session is still waiting on."""
-        ts = [t for t in bus.threads.values() if t.from_ == opened_by and (status == "any" or t.status == status)]
+    async def list_threads(opened_by: str | None = None, awaiting: str | None = None, status: str = "open",
+                           _: Principal = Depends(principal)) -> dict:
+        """A handle's own asks/requests/notes (opened_by), or the open questions waiting on a session's answer
+        (awaiting: its handles, comma-separated, so mail to an old name after a rename counts)."""
+        if opened_by is None and awaiting is None:
+            raise HTTPException(422, "give opened_by or awaiting")
+        if awaiting is not None:
+            ts = bus.awaiting([h.strip().lstrip("@") for h in awaiting.split(",") if h.strip()][:20])
+        else:
+            ts = [t for t in bus.threads.values() if t.from_ == opened_by and (status == "any" or t.status == status)]
         ts.sort(key=lambda t: t.ts)
         return {"threads": [{"id": t.id, "kind": t.kind, "to": t.to, "status": t.status, "ts": t.ts.isoformat(),
                              "deadline": t.deadline.isoformat() if t.deadline else None,
-                             "first_line": (t.body.strip().splitlines() or [""])[0][:120], "replies": len(t.answers)}
+                             "first_line": (t.body.strip().splitlines() or [""])[0][:120], "replies": len(t.answers),
+                             "from": t.from_, "topic": t.topic}
                             for t in ts[-50:]]}
 
     @app.get("/api/threads/{thread_id}")

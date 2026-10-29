@@ -202,6 +202,32 @@ class Bus:
         start = bisect.bisect_right(self.events, after, key=lambda e: e.seq)
         return self.events[start : start + limit]
 
+    def seq_at(self, ts: datetime) -> int:
+        """The seq of the last event at or before `ts` (0 if none); events are appended in time order."""
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        i = bisect.bisect_right(self.events, ts, key=lambda e: e.ts)
+        return self.events[i - 1].seq if i else 0
+
+    def awaiting(self, handles: list[str]) -> list[Thread]:
+        """Open requests and asks addressed to any of `handles` that none of them has answered or replied to.
+
+        Named recipients count (alone or among several), and so do peers' requests to @all, which collect an
+        answer from each session. The operator's own threads aren't asked of sessions."""
+        mine = set(handles)
+        tags = {f"@{h}" for h in mine}
+        out = []
+        for t in self.threads.values():
+            if t.kind == "note" or t.status != "open" or t.from_ in mine:
+                continue
+            to = set(t.to.split(","))
+            if not (tags & to or (t.to == "@all" and t.kind == "request")):
+                continue
+            if any(a.get("from") in mine for a in t.answers):
+                continue
+            out.append(t)
+        return out
+
     def search(self, q: str, limit: int = 200) -> list[Event]:
         """Exact id/ref matches first (a thread and everything that points at it), then text."""
         q = q.strip()

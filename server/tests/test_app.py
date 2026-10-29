@@ -448,3 +448,31 @@ def test_handoffs_follow_a_rename(client):
     assert p["handoff_at"] and p["handoff_at"].startswith("2026-10-29T05:00")
     notes = client.get("/api/handoffs/scout-67", headers=OP).json()["notes"]
     assert [n["text"] for n in notes] == ["## Where we are\nold name"]
+
+
+def test_awaiting_lists_open_questions_a_session_owes_and_events_jump_by_time(client):
+    def ev(**kw):
+        return client.post("/api/events", headers=OP if kw.get("from") == "ada" else AGENT, json=kw).json()
+    direct = ev(**{"from": "atlas", "to": "@hermes", "kind": "request", "body": "which port?"})
+    group = ev(**{"from": "ada", "to": "@hermes,@zeus", "kind": "request", "body": "status?"})
+    peers = ev(**{"from": "zeus", "to": "@all", "kind": "request", "body": "anyone on node2?"})
+    old_name = ev(**{"from": "atlas", "to": "@hermes-old", "kind": "request", "body": "before the rename"})
+    ev(**{"from": "atlas", "to": "@zeus", "kind": "request", "body": "not for hermes"})
+    ev(**{"from": "atlas", "to": "@hermes", "kind": "info", "body": "not a question"})
+    mine = ev(**{"from": "hermes", "to": "@all", "kind": "request", "body": "my own"})
+    def owed(h="hermes,hermes-old"):
+        return [t["id"] for t in client.get("/api/threads", params={"awaiting": h}, headers=AGENT).json()["threads"]]
+    assert owed() == [direct["id"], group["id"], peers["id"], old_name["id"]] and mine["id"] not in owed()
+    ev(**{"from": "hermes", "kind": "answer", "ref": direct["id"], "body": "7460"})
+    ev(**{"from": "hermes", "kind": "answer", "ref": group["id"], "body": "fine"})  # group stays open for zeus
+    ev(**{"from": "hermes", "kind": "reply", "ref": peers["id"], "body": "not me"})
+    assert owed() == [old_name["id"]] and group["id"] in owed("zeus")
+    assert client.get("/api/threads", headers=AGENT).status_code == 422
+    # since_ts: everything after a moment, without knowing a seq
+    head = client.get("/api/events", params={"after": 10**12}, headers=AGENT).json()["head"]
+    later = ev(**{"from": "atlas", "to": "@hermes", "kind": "info", "body": "after the mark"})
+    got = client.get("/api/events", params={"since_ts": later["ts"], "after": 0}, headers=AGENT).json()["events"]
+    assert got == []  # strictly after
+    cut = client.app.state.bus.events[-2].ts.isoformat()
+    got = client.get("/api/events", params={"since_ts": cut}, headers=AGENT).json()["events"]
+    assert [e["id"] for e in got] == [later["id"]] and later["seq"] > head

@@ -63,3 +63,35 @@ def test_mark_tool_writes_marks_the_plugin_reads(tmp_path: Path, monkeypatch):
     asyncio.run(go())
     rows = [json.loads(l) for l in (tmp_path / "sid-9" / "marks.jsonl").read_text().splitlines()]
     assert rows[0]["text"] == "the lake, not the park" and rows[0]["said_by"] == "ada" and rows[0]["why"] == "reseeding"
+
+
+def test_owed_and_read_since_a_time(tmp_path: Path, monkeypatch):
+    import asyncio
+    from orchestra_mcp import link as L, server as S
+    monkeypatch.setattr(L, "STATE_ROOT", tmp_path / "state")
+    monkeypatch.setenv("ORCHESTRA_HANDLE", "scout")
+    srv = S.build_server(L.Config(url="http://x", token="t", operator="ada"))
+    calls = []
+    evs = [{"seq": i, "id": f"m00000{i}", "from": "atlas", "to": "@all", "kind": "status", "body": f"e{i}",
+            "ts": f"2026-10-29T1{i}:00:00Z"} for i in range(1, 6)]
+    async def fake_get(self, path, **params):
+        calls.append((path, params))
+        if path == "/api/threads":
+            return {"threads": [{"id": "r474000", "kind": "request", "from": "serving", "to": "@scout", "deadline": None,
+                                 "replies": 0, "first_line": "a cursor problem"}]}
+        if path == "/api/events" and "since_ts" in params:
+            return {"head": 5, "events": [e for e in evs if e["ts"] > params["since_ts"].replace("+00:00", "Z")][:1]}
+        return {"head": 5, "events": [e for e in evs if e["seq"] > params["after"]]}
+    monkeypatch.setattr(L.Link, "get", fake_get)
+    monkeypatch.setattr(L.Link, "my_handles", lambda self: {"scout", "scout-old"})
+    async def go(tool, args):
+        r = await srv.call_tool(tool, args)
+        if r.is_error:
+            raise AssertionError(r.content[0].text)
+        return r.structured_content if r.structured_content is not None else json.loads(r.content[0].text)
+    owed = asyncio.run(go("owed", {}))
+    assert owed["count"] == 1 and owed["owed"][0].startswith("r474000 request from serving")
+    assert ("/api/threads", {"awaiting": "scout,scout-old"}) in calls
+    got = asyncio.run(go("read", {"since": "2026-10-29T13:30Z"}))
+    assert [l.split()[1] for l in got["events"]] == ["m000004", "m000005"]
+    assert asyncio.run(go("read", {"since": "2026-10-30T00:00Z"}))["events"] == []

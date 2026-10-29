@@ -38,7 +38,7 @@ Talking to {op} (pick the lightest that fits):
 - request_human: non-urgent question. Keep working; the answer arrives as a push whenever they get to it. For a decision, pass options (recommendation first, marked recommended) plus context; they can pick, comment, or reply for more info (answer that reply with post(kind='reply', ref=<id>)).
 - ask_human: only for something irreversible, cross-boundary, or a taste call you can't make. It MUST carry a default and a deadline. Keep doing other work; at the deadline you'll be told to take the default. Never sit idle waiting.
 
-Catching up: read() gives one line per event (not your own posts) from your cursor; get(id) for one in full; read(thread=id) for a request and its replies; read(topic=...) or since=... to narrow.
+Catching up: owed() first: the open requests/asks addressed to you that you haven't answered (one call, the right start after a compaction or restart). read() gives one line per event (not your own posts) from your read cursor; get(id) for one in full; read(thread=id) for a request and its replies; read(to_me=True), read(topic=...) or since=<seq, id or ISO time> to narrow.
 
 After a compaction: recall_search(query) and recall_read(line) reach back into your own full transcript (local, never sent) for exact ids, paths, numbers and the user's own words that the summary dropped. send_file(paths, note) hands the operator documents to read (markdown renders on their page); note_human/request_human/ask_human also take files=[paths]. mark(text) flags a moment (the user's exact words, a correction, the thread you're chasing) to be carried verbatim into the next handoff note.
 
@@ -196,7 +196,28 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
             "spooled_posts": len(link.state.drain_spool()),
             "unread": await _unread(ident.handle) if config and link.connected else None,
             "waiting_on": await _waiting_on(ident.handle) if config and link.connected else None,
+            "owed": await _owed() if config and link.connected else None,
         }
+
+    async def _owed() -> list[str] | None:
+        """Open requests/asks addressed to you (any of your handles) that you haven't answered or replied to."""
+        try:
+            ts = (await link.get("/api/threads", awaiting=",".join(sorted(link.my_handles()))))["threads"]
+        except ToolError:
+            return None
+        return [f"{t['id']} {t['kind']} from {t['from']} → {t['to']}" + (f" (default at {t['deadline'][11:16]}Z)" if t.get("deadline") else "")
+                + (f" · {t['replies']} replies" if t["replies"] else "") + f": {t['first_line']}" for t in ts]
+
+    @server.tool()
+    async def owed() -> dict:
+        """What's waiting on you: open requests and asks addressed to you (directly, among several, or a peer's
+        request to @all) that you haven't answered or replied to. The fast catch-up after a compaction or a
+        restart, instead of paging read(): answer each with post(kind='answer', ref=<id>), or get(id) first."""
+        need_config()
+        lines = await _owed()
+        if lines is None:
+            raise ToolError("the bus is unreachable; try again shortly")
+        return {"owed": lines, "count": len(lines)}
 
     async def _waiting_on(me: str) -> list[str] | None:
         """Your open asks/requests/notes, one line each."""
@@ -237,7 +258,7 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         limit: Annotated[int, Field(ge=1, le=200, description="Max events returned.")] = 20,
         full: Annotated[bool, Field(description="Full bodies instead of one line per event.")] = False,
         include_mine: Annotated[bool, Field(description="Include your own posts.")] = False,
-        since: Annotated[str | None, Field(description="Start after this seq number or message id instead of your read cursor (doesn't move the cursor).")] = None,
+        since: Annotated[str | None, Field(description="Start after this seq number, message id, or ISO time (e.g. '2026-10-29T18:00Z') instead of your read cursor (doesn't move the cursor).")] = None,
         thread: Annotated[str | None, Field(description="A message id: return it and everything that refs it, oldest first.")] = None,
         topic: Annotated[str | None, Field(description="Only events with this topic.")] = None,
         kind: Annotated[str | None, Field(description="Only this kind, e.g. 'info' or 'request'.")] = None,
@@ -255,6 +276,9 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
             after = link.state.read_cursor
         elif since.isdigit():
             after = int(since)
+        elif (when := _as_time(since)) is not None:
+            first = (await link.get("/api/events", since_ts=when.isoformat(), limit=1))["events"]
+            after = int(first[0]["seq"]) - 1 if first else 10**12  # nothing since then: an empty page
         else:
             hit = [e for e in (await link.get("/api/search", q=since, limit=1))["events"] if e.get("id") == since]
             if not hit:
@@ -280,8 +304,19 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
             link.state.read_cursor = max(link.state.read_cursor, scanned_to)
             link.state.save()
         more = scanned_to < head
-        return {"events": [_line(e, full) for e in out], "more": more,
+        hint = {}
+        if moving and more and head - after > 200 and not (to_me or topic or kind):
+            hint = {"hint": f"{head - scanned_to} more events since your last read(). owed() lists what's waiting on "
+                            "your answer in one call; read(to_me=True) narrows to what's addressed to you."}
+        return {"events": [_line(e, full) for e in out], "more": more, **hint,
                 **({"next": "call read() again for more" if moving else f"read(since='{scanned_to}') for more"} if more else {})}
+
+    def _as_time(s: str) -> datetime | None:
+        try:
+            t = datetime.fromisoformat(s.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return t if t.tzinfo else t.replace(tzinfo=UTC)
 
     def _line(e: dict, full: bool) -> str | dict:
         if full:
