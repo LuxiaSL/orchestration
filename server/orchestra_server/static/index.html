@@ -101,6 +101,23 @@ main > section, main > aside { min-width: 0; }
 .dflt .k { color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: 11.5px; padding-top: 2px; }
 .countdown { display: inline-block; font-variant-numeric: tabular-nums; font-weight: 700; margin-top: 4px; padding: 1px 0; }
 .countdown.soon { background: var(--fg); color: var(--bg); padding: 1px 8px; }
+.ctx { font-size: 13.5px; color: var(--muted); border-left: 1px solid var(--line); padding: 2px 0 2px 10px; margin: 6px 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.opts { display: grid; gap: 6px; margin: 10px 0 4px; }
+.opts .hint { font-size: 12px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+.opt { display: grid; grid-template-columns: 22px 1fr; gap: 2px 8px; text-align: left; background: transparent; border: 1px solid var(--line); padding: 8px 10px; cursor: pointer; border-radius: 2px; }
+.opt:hover { border-color: var(--fg); }
+.opt[aria-pressed="true"] { border-color: var(--fg); box-shadow: inset 3px 0 0 var(--fg); background: var(--surface2); }
+.opt .mk { font-weight: 700; }
+.opt .ol { font-weight: 700; }
+.opt .badge { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; border: 1px solid currentColor; padding: 0 5px; margin-left: 8px; font-weight: 400; color: var(--muted); }
+.opt .badge.rec { color: var(--fg); }
+.opt .od { grid-column: 2; font-size: 13.5px; color: var(--muted); white-space: pre-wrap; }
+.opt.closed { cursor: default; }
+.disc { margin: 10px 0 0; border-top: 1px solid var(--line); }
+.disc .d { padding: 6px 0 0; font-size: 14px; }
+.disc .d .who { font-weight: 700; } .disc .d .when { color: var(--faint); font-size: 12px; margin-left: 6px; }
+.disc .d.op { padding-left: 10px; border-left: 2px solid var(--fg); }
+.disc .d .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
 .reply { margin-top: 10px; display: grid; gap: 8px; }
 .reply .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .reply .row .spacer { flex: 1; }
@@ -344,31 +361,55 @@ function tickCountdowns() {
 }
 
 // ---- inbox ----
+// Picks on option cards survive re-renders (they live here, not in the DOM).
+const picks = {};
+function optionsBlock(t, closed) {
+  if (!t.options || !t.options.length) return "";
+  const sel = closed ? new Set(t.choice || []) : (picks[t.id] || new Set());
+  const rows = t.options.map((o) => {
+    const on = sel.has(o.label);
+    const mk = t.multi ? (on ? "[x]" : "[ ]") : (on ? "(•)" : "( )");
+    const badges = (o.recommended ? `<span class="badge rec">recommended</span>` : "")
+      + (t.kind === "ask" && t.default === o.label ? `<span class="badge">default</span>` : "");
+    return `<button class="opt${closed ? " closed" : ""}" data-t="${esc(t.id)}" data-label="${esc(o.label)}" aria-pressed="${on}"${closed ? " disabled" : ""}>
+      <span class="mk">${mk}</span><span><span class="ol">${esc(o.label)}</span>${badges}</span>${o.description ? `<span class="od">${esc(o.description)}</span>` : ""}</button>`;
+  }).join("");
+  const hint = closed ? "" : `<span class="hint">${t.multi ? "pick any" : "pick one"}, or answer in your own words</span>`;
+  return `<div class="opts">${hint}${rows}</div>`;
+}
+function discussion(t) {
+  const items = (t.answers || []).filter((a) => a.kind === "reply");
+  if (!items.length) return "";
+  return `<div class="disc">${items.map((a) => `<div class="d${a.from === OP() ? " op" : ""}"><span class="who">${a.from === OP() ? "you" : esc(a.from)}</span><span class="when">${a.ts ? ago(a.ts) : ""}</span><div class="txt">${esc(a.body)}</div></div>`).join("")}</div>`;
+}
 function threadCard(t, closed) {
   const k = t.kind;
   const topic = t.topic ? `<span>#${esc(t.topic)}</span>` : "";
-  let extra = "";
+  let extra = t.context ? `<div class="ctx">${esc(t.context)}</div>` : "";
+  extra += optionsBlock(t, closed);
   if (k === "ask") {
-    extra = `<div class="dflt"><span class="k">default</span><span><b>${esc(t.default)}</b></span>${t.revert_cost ? `<span class="k">revert</span><span>${esc(t.revert_cost)}</span>` : ""}</div>`;
+    extra += `<div class="dflt"><span class="k">default</span><span><b>${esc(t.default)}</b></span>${t.revert_cost ? `<span class="k">revert</span><span>${esc(t.revert_cost)}</span>` : ""}</div>`;
     if (!closed) extra += `<span class="countdown" data-deadline="${esc(t.deadline)}">${left(t.deadline)}</span>`;
   }
   let foot;
   if (!closed) {
-    const ph = k === "note" ? "reply (optional)…" : "your answer…";
+    const hasOpts = t.options && t.options.length;
+    const ph = k === "note" ? "reply (optional)…" : hasOpts ? "comment, or your own answer instead…" : "your answer…";
     foot = `<div class="reply">
       <textarea data-draft="${t.id}" rows="2" placeholder="${ph}">${esc(drafts[t.id] || "")}</textarea>
       <div class="row">
-        <button class="btn primary" onclick="answer('${t.id}')">${k === "note" ? "reply" : "answer"}</button>
+        <button class="btn primary" onclick="answer('${t.id}')">${k === "note" ? "reply" : hasOpts ? "send answer" : "answer"}</button>
         ${k === "ask" ? `<button class="btn" onclick="takeDefault('${t.id}')">take default</button>` : ""}
+        ${k !== "note" ? `<button class="btn" onclick="askMore('${t.id}')" title="sends your text to ${esc(t.from)} and keeps this open">ask for more info</button>` : ""}
         <span class="spacer"></span>
         <button class="btn ghost" onclick="ack('${t.id}')">${k === "note" ? "seen" : "ack"}</button>
       </div></div>`;
   } else {
-    foot = `<div class="res"><b>${esc(t.status)}</b>${t.resolution ? " · " + esc(t.resolution) : ""} · ${ago(t.resolved_at || t.ts)}</div>`;
+    foot = `<div class="res"><b>${esc(t.status)}</b>${t.choice && t.choice.length ? " · " + t.choice.map(esc).join(", ") : ""}${t.resolution ? " · " + esc(t.resolution) : ""} · ${ago(t.resolved_at || t.ts)}</div>`;
   }
   return `<div class="card ${k}${closed ? " done" : ""}" id="t-${t.id}">
     <div class="meta"><span class="tag ${k}">${k}</span><span class="who">${esc(t.from)}</span>${topic}<span>${ago(t.ts)}</span><span class="id idlink" data-id="${t.id}">${t.id}</span></div>
-    <div class="body">${esc(t.body)}</div>${extra}${foot}</div>`;
+    <div class="body">${esc(t.body)}</div>${extra}${discussion(t)}${foot}</div>`;
 }
 // Re-rendering replaces nodes: that drops focus from a box being typed in and removes the
 // node the browser anchors scrolling to. So: don't rebuild the inbox while it's being typed
@@ -459,17 +500,46 @@ function renderSent() {
   $("#sentCount").textContent = sent.length ? `${open} open` : "";
   $("#sent").innerHTML = sent.length ? sent.map(sentCard).join("") : `<div class="empty">send a request from the desk and answers collect here</div>`;
 }
-async function closeThread(kind, id, body) {
-  try { await post({ kind, ref: id, body }); delete drafts[id]; await refresh(); toast(kind === "answer" ? "sent" : "closed"); }
+async function closeThread(kind, id, body, extra = {}) {
+  try { await post({ kind, ref: id, body, ...extra }); delete drafts[id]; delete picks[id]; await refresh(); toast(kind === "answer" ? "sent" : "closed"); }
   catch (e) { toast("failed: " + e.message); }
 }
 function answer(id) {
   const body = (drafts[id] || "").trim();
   const t = state.inbox.open.find((x) => x.id === id);
-  if (!body) { if (t && t.kind === "note") return ack(id); return toast("write an answer first"); }
+  const chosen = t && t.options ? t.options.map((o) => o.label).filter((l) => picks[id] && picks[id].has(l)) : [];
+  if (chosen.length) return closeThread("answer", id, body, { choice: chosen });
+  if (!body) { if (t && t.kind === "note") return ack(id); return toast(t && t.options ? "pick an option or write an answer" : "write an answer first"); }
   closeThread("answer", id, body);
 }
-function takeDefault(id) { const t = state.inbox.open.find((x) => x.id === id); closeThread("answer", id, `take the default: ${t ? t.default : ""}`); }
+function takeDefault(id) {
+  const t = state.inbox.open.find((x) => x.id === id);
+  if (t && t.options) return closeThread("answer", id, "took the default", { choice: [t.default] });
+  closeThread("answer", id, `take the default: ${t ? t.default : ""}`);
+}
+async function askMore(id) {
+  const body = (drafts[id] || "").trim();
+  const t = state.inbox.open.find((x) => x.id === id);
+  if (!body) { toast("write what you'd like to know"); const ta = document.querySelector(`textarea[data-draft="${id}"]`); if (ta) ta.focus({ preventScroll: true }); return; }
+  try {
+    await post({ kind: "reply", to: "@" + (t ? t.from : "all"), ref: id, body });
+    delete drafts[id]; await refresh(); toast(`asked ${t ? t.from : ""} for more · still open`);
+  } catch (e) { toast("failed: " + e.message); }
+}
+// option rows: toggle the pick in place, no re-render
+$("#inbox").addEventListener("click", (e) => {
+  const b = e.target.closest(".opt"); if (!b || b.disabled) return;
+  const t = state.inbox.open.find((x) => x.id === b.dataset.t); if (!t) return;
+  const set = picks[t.id] || (picks[t.id] = new Set());
+  const label = b.dataset.label;
+  if (t.multi) set.has(label) ? set.delete(label) : set.add(label);
+  else { const was = set.has(label); set.clear(); if (!was) set.add(label); }
+  b.closest(".opts").querySelectorAll(".opt").forEach((x) => {
+    const on = set.has(x.dataset.label);
+    x.setAttribute("aria-pressed", on);
+    x.querySelector(".mk").textContent = t.multi ? (on ? "[x]" : "[ ]") : (on ? "(•)" : "( )");
+  });
+});
 function ack(id) { closeThread("ack", id, (drafts[id] || "").trim()); }
 
 // ---- bus ----
@@ -624,7 +694,7 @@ function connect() {
     const e = JSON.parse(m.data);
     if (events.length && e.seq <= events[events.length - 1].seq) return;
     events.push(e); if (events.length > 1000) events.splice(0, events.length - 1000); prependEvent(e);
-    if (["ask", "request", "note", "answer", "ack", "defaulted", "withdraw"].includes(e.kind)) refresh();
+    if (["ask", "request", "note", "answer", "ack", "defaulted", "withdraw", "reply"].includes(e.kind)) refresh();
     else state.head = e.seq;
   });
   es.onopen = () => $("#live").classList.add("on");

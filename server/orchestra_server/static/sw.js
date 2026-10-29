@@ -36,7 +36,9 @@ self.addEventListener("notificationclick", (event) => {
     event.waitUntil((async () => {
       const r = await fetch("/api/events", {
         method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ from: "operator", kind: "answer", ref: p.thread, body: `take the default: ${p.default || ""}` }),
+        body: JSON.stringify(p.options
+          ? { from: "operator", kind: "answer", ref: p.thread, body: "took the default (from the notification)", choice: [p.default] }
+          : { from: "operator", kind: "answer", ref: p.thread, body: `take the default: ${p.default || ""}` }),
       });
       const ok = r.ok || r.status === 409;
       await self.registration.showNotification(ok ? "default taken ✓" : "couldn't answer — open the inbox", {

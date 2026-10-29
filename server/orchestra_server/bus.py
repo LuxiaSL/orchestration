@@ -78,6 +78,7 @@ class Bus:
                     "id": ev.id, "kind": ev.kind, "from": ev.from_, "to": ev.to, "ts": ev.ts,
                     "body": ev.body, "topic": ev.topic, "default": ev.default,
                     "deadline": ev.deadline, "revert_cost": ev.revert_cost,
+                    "options": ev.options, "multi": ev.multi, "context": ev.context,
                 }
             )
         elif ev.kind in CLOSING_KINDS and ev.ref in self.threads:
@@ -89,10 +90,12 @@ class Bus:
             if t.status == "open":
                 t.status = {"answer": "answered", "ack": "acked", "defaulted": "defaulted", "withdraw": "withdrawn"}[ev.kind]  # type: ignore[assignment]
                 t.resolution = ev.body or (t.default if ev.kind == "defaulted" else None)
+                t.choice = ev.choice if ev.kind == "answer" else ([t.default] if ev.kind == "defaulted" and t.options else None)
                 t.resolved_at = ev.ts
                 t.resolved_by = ev.from_
-        elif ev.kind == "reply" and ev.ref in self.threads and ev.from_ != self.threads[ev.ref].from_:
-            # Replies are comments, not resolutions, but they belong with the thread they answer.
+        elif ev.kind == "reply" and ev.ref in self.threads:
+            # Replies are comments, not resolutions, but they belong with the thread they answer
+            # (a broadcast's responses, or a back-and-forth asking for more info).
             self.threads[ev.ref].answers.append(
                 {"from": ev.from_, "body": ev.body, "ts": ev.ts.isoformat(), "id": ev.id, "kind": "reply"})
 

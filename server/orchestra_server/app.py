@@ -156,6 +156,16 @@ def create_app(settings: Settings) -> FastAPI:
                     raise HTTPException(403, "only the opener may withdraw a thread")
                 if post.kind == "answer" and thread.to not in (f"@{post.from_}", "@all"):
                     raise HTTPException(403, f"{thread.id} is addressed to {thread.to}, not you; use kind=reply to comment")
+        if post.choice is not None:
+            thread = bus.threads[post.ref or ""]  # existence checked above (answer is a closing kind)
+            labels = [o.label for o in thread.options or []]
+            if not labels:
+                raise HTTPException(422, f"{thread.id} has no options to choose from; answer in words")
+            unknown = [c for c in post.choice if c not in labels]
+            if unknown:
+                raise HTTPException(422, f"not options of {thread.id}: {unknown}; options are {labels}")
+            if not thread.multi and len(post.choice) > 1:
+                raise HTTPException(422, f"{thread.id} takes one choice")
         if post.kind == "ask":
             if post.deadline is None or post.default is None:
                 raise HTTPException(422, "an ask needs default and deadline (invariant 1: nothing hard-blocks on a human)")

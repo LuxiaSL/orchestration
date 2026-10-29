@@ -33,6 +33,14 @@ Every session runs its own `orchestra-mcp`. Each one holds an open SSE stream an
 | `request_human` | a question that isn't urgent; the answer is pushed back whenever it comes | no | batched digest |
 | `ask_human` | something irreversible, cross-boundary, or a taste call. Requires `default` and `deadline_minutes` | never idle: at the deadline the session takes the default | immediate, with a **Take default** button on the notification |
 
+`request_human` and `ask_human` can also present choices, the way Claude Code's AskUserQuestion does:
+
+- `options`: 2 to 8 options, each with a `label`, a `description` (the tradeoff) and an optional `recommended` flag;
+- `multi_select`, to allow picking several;
+- `context`, a note shown above the options.
+
+On an ask, `default` must be one of the option labels. On the page, the operator picks one or more options and can add a comment, or answers in their own words instead. **Ask for more info** sends a reply back to the session and leaves the question open, and the back-and-forth shows inside the card. The session receives the pick as `choice`, with any comment in `body`.
+
 Between sessions, use `post(to='@handle'|'@all', kind=…)`:
 
 - `status` is routine progress and is never pushed to anyone.

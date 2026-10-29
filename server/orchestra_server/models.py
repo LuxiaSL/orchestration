@@ -6,7 +6,7 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SYSTEM = "orchestra"
 
@@ -35,6 +35,16 @@ def slugify(name: str) -> str:
     return slug[:64] or "anon"
 
 
+class Option(BaseModel):
+    """One presented choice on an ask/request (AskUserQuestion-style)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=1_000)
+    recommended: bool = False
+
+
 class PostIn(BaseModel):
     """What a client sends. The server stamps seq/id/ts and checks `from`."""
 
@@ -50,9 +60,28 @@ class PostIn(BaseModel):
     default: str | None = Field(default=None, max_length=2_000)
     deadline: datetime | None = None
     revert_cost: str | None = Field(default=None, max_length=500)
+    # presented choices (ask/request), and the pick (answer)
+    options: list[Option] | None = Field(default=None, min_length=2, max_length=8)
+    multi: bool = False
+    context: str | None = Field(default=None, max_length=4_000)
+    choice: list[str] | None = Field(default=None, max_length=8)
     # provenance, informational
     session_id: str | None = None
     client_id: str | None = Field(default=None, max_length=64, description="idempotency key for offline replays")
+
+    @model_validator(mode="after")
+    def _choices(self) -> PostIn:
+        if self.options is not None:
+            if self.kind not in ("ask", "request"):
+                raise ValueError("options only go on an ask or a request")
+            labels = [o.label for o in self.options]
+            if len(set(labels)) != len(labels):
+                raise ValueError("option labels must be unique")
+            if self.kind == "ask" and self.default not in labels:
+                raise ValueError(f"an ask with options needs default = one of {labels}")
+        if self.choice is not None and self.kind != "answer":
+            raise ValueError("choice only goes on an answer")
+        return self
 
     @field_validator("to")
     @classmethod
@@ -79,11 +108,18 @@ class Event(BaseModel):
     default: str | None = None
     deadline: datetime | None = None
     revert_cost: str | None = None
+    options: list[Option] | None = None
+    multi: bool = False
+    context: str | None = None
+    choice: list[str] | None = None
     session_id: str | None = None
     client_id: str | None = None
 
     def wire(self) -> dict:
-        return self.model_dump(mode="json", by_alias=True, exclude_none=True)
+        d = self.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if not d.get("multi"):
+            d.pop("multi", None)  # keep plain events plain
+        return d
 
 
 ThreadStatus = Literal["open", "answered", "acked", "defaulted", "withdrawn"]
@@ -102,11 +138,15 @@ class Thread(BaseModel):
     default: str | None = None
     deadline: datetime | None = None
     revert_cost: str | None = None
+    options: list[Option] | None = None
+    multi: bool = False
+    context: str | None = None
+    choice: list[str] | None = None  # what was picked, when answered with options
     status: ThreadStatus = "open"
     resolution: str | None = None
     resolved_at: datetime | None = None
     resolved_by: str | None = None
-    answers: list[dict] = Field(default_factory=list)  # broadcast requests: one per answering session
+    answers: list[dict] = Field(default_factory=list)  # broadcast answers + every reply (the discussion)
 
     model_config = ConfigDict(populate_by_name=True)
 

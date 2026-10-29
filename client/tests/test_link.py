@@ -41,3 +41,10 @@ def test_identity_finds_real_session():
         return
     me = identity.whoami()
     assert me.handle
+
+
+def test_render_choice_and_clarify():
+    s = render({"kind": "answer", "from": "ada", "ref": "a1", "choice": ["ship now"], "body": "after lunch"}, operator="ada")
+    assert "chose 'ship now'" in s and "after lunch" in s
+    s = render({"kind": "reply", "from": "ada", "ref": "a1", "body": "what about the migration?"}, operator="ada")
+    assert "post(kind='reply', ref='a1'" in s and "stays open" in s

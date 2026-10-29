@@ -96,8 +96,10 @@ class Pusher:
             when = f" · default at {ev.deadline:%H:%M}Z" if ev.deadline else ""
             self._spawn(self.send({
                 "title": f"⏳ {ev.from_} asks",
-                "body": f"{ev.body}\n→ default: {ev.default or '—'}{when}",
-                "tag": ev.id, "thread": ev.id, "kind": "ask", "default": ev.default or "",
+                "body": f"{ev.body}\n"
+                        + ("".join(f"{'★' if o.recommended else '·'} {o.label}\n" for o in ev.options) if ev.options else "")
+                        + f"→ default: {ev.default or '—'}{when}",
+                "tag": ev.id, "thread": ev.id, "kind": "ask", "default": ev.default or "", "options": bool(ev.options),
                 "url": f"{self.base_url}#t={ev.id}",
                 "requireInteraction": True,
                 "actions": [{"action": "default", "title": "Take default"}, {"action": "open", "title": "Open"}],

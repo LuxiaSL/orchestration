@@ -18,7 +18,7 @@ from typing import Annotated, Any, Literal
 
 import anyio
 from mcp.server.mcpserver import MCPServer
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from .link import Config, ConfigError, Link, render
 
@@ -31,13 +31,24 @@ Messages addressed to you (@you, @all from {op}, peers' @all info/request) arriv
 
 Talking to {op} (pick the lightest that fits):
 - note_human: FYI just for their eyes. Never blocks, needs no reply.
-- request_human: non-urgent question. Keep working; the answer arrives as a push whenever they get to it.
+- request_human: non-urgent question. Keep working; the answer arrives as a push whenever they get to it. For a decision, pass options (recommendation first, marked recommended) plus context; they can pick, comment, or reply for more info (answer that reply with post(kind='reply', ref=<id>)).
 - ask_human: only for something irreversible, cross-boundary, or a taste call you can't make. It MUST carry a default and a deadline. Keep doing other work; at the deadline you'll be told to take the default. Never sit idle waiting.
 
 Talking to peers: post(to='@handle' or '@all'). kind=status for routine progress (not pushed to anyone), info for things others should know now (pushed), request for a question to a peer (they answer with kind=answer, ref=<id>).
 
 Post a status when you start, finish, or get blocked. On HALT: finish the current atomic step, post status, start nothing new, end your turn.
 """
+
+
+class Option(BaseModel):
+    label: Annotated[str, Field(min_length=1, max_length=120, description="Short choice text, 1-5 words.")]
+    description: Annotated[str | None, Field(max_length=1000, description="What picking this means: the tradeoff or rationale.")] = None
+    recommended: bool = False
+
+
+OPTIONS_DOC = ("Optional 2-8 presented choices, like AskUserQuestion: put your recommendation first and mark it "
+               "recommended. They can pick (one, or several with multi_select), add a comment, answer in their "
+               "own words instead, or reply asking for more info, which keeps the question open.")
 
 
 # -- channel seams (fail loud, never silent) ---------------------------------
@@ -114,6 +125,15 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         if config is None:
             raise ConfigError(config_error or "orchestra is not configured")
 
+    def _choices(options: list[Option] | None, multi: bool, context: str | None) -> dict:
+        out: dict[str, Any] = {}
+        if options:
+            out["options"] = [o.model_dump(exclude_none=True) for o in options]
+            out["multi"] = multi
+        if context:
+            out["context"] = context
+        return out
+
     async def _human(kind: str, body: str, topic: str | None, **extra: Any) -> dict:
         need_config()
         return await link.post({"to": f"@{link.operator}", "kind": kind, "body": body, "topic": topic, **extra})
@@ -179,9 +199,12 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
     async def request_human(
         question: Annotated[str, Field(description="The question, self-contained: they may read it on a phone.")],
         topic: str | None = None,
+        options: Annotated[list[Option] | None, Field(min_length=2, max_length=8, description=OPTIONS_DOC)] = None,
+        multi_select: bool = False,
+        context: Annotated[str | None, Field(max_length=4000, description="Why you're asking / what you already know. Shown above the options.")] = None,
     ) -> dict:
         """Non-urgent question for the human operator. Keep working: the answer is pushed to you whenever they get to it."""
-        return await _human("request", question, topic)
+        return await _human("request", question, topic, **_choices(options, multi_select, context))
 
     @server.tool()
     async def ask_human(
@@ -190,11 +213,15 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         deadline_minutes: Annotated[int, Field(ge=1, le=7 * 24 * 60)],
         revert_cost: Annotated[str, Field(description="How bad is it if the default turns out wrong?")],
         topic: str | None = None,
+        options: Annotated[list[Option] | None, Field(min_length=2, max_length=8, description=OPTIONS_DOC + " With options, default must be one of the labels.")] = None,
+        multi_select: bool = False,
+        context: Annotated[str | None, Field(max_length=4000, description="Why you're asking / what you already know. Shown above the options.")] = None,
     ) -> dict:
         """BLOCKING-tier ask: pings the operator's phone now. You still never wait idle; at the deadline you take the default."""
         deadline = datetime.now(UTC) + timedelta(minutes=deadline_minutes)
         ev = await _human("ask", question, topic, default=default,
-                          deadline=deadline.isoformat(), revert_cost=revert_cost)
+                          deadline=deadline.isoformat(), revert_cost=revert_cost,
+                          **_choices(options, multi_select, context))
         link.remember_ask(ev, question, default, deadline)
         return {**ev, "next": f"keep working; at {deadline:%H:%M}Z without an answer you will be told to take the default"}
 

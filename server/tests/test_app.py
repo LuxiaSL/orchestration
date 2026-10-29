@@ -184,3 +184,50 @@ def test_replies_collect_on_thread_and_search(client):
     assert client.get("/api/search", params={"q": "A99EF"}, headers=OP).json()["count"] == 1
     assert client.get("/api/search", params={"q": "@writer"}, headers=OP).json()["count"] == 1
     assert client.get("/api/search", params={"q": "nothing-like-this"}, headers=OP).json()["count"] == 0
+
+
+def test_options_ask_choose_and_clarify(client):
+    opts = [{"label": "ship now", "description": "tests green", "recommended": True},
+            {"label": "wait for review"}, {"label": "abandon"}]
+    bad = client.post("/api/events", headers=AGENT, json={
+        "from": "atlas", "to": "@ada", "kind": "ask", "body": "ship?", "options": opts,
+        "default": "not an option", "deadline": soon()})
+    assert bad.status_code == 422
+    ask = client.post("/api/events", headers=AGENT, json={
+        "from": "atlas", "to": "@ada", "kind": "ask", "body": "ship?", "options": opts, "context": "v2 is ready",
+        "default": "wait for review", "deadline": soon()}).json()
+    t = client.get(f"/api/threads/{ask['id']}", headers=OP).json()
+    assert [o["label"] for o in t["options"]] == ["ship now", "wait for review", "abandon"] and t["context"] == "v2 is ready"
+    # asking for more info keeps it open and reaches the asker
+    more = client.post("/api/events", headers=OP, json={"from": "ada", "kind": "reply", "ref": ask["id"], "body": "what about the migration?"}).json()
+    assert more["to"] == "@atlas"
+    client.post("/api/events", headers=AGENT, json={"from": "atlas", "kind": "reply", "ref": ask["id"], "body": "migration is reversible"})
+    t = client.get(f"/api/threads/{ask['id']}", headers=OP).json()
+    assert t["status"] == "open" and [a["from"] for a in t["answers"]] == ["ada", "atlas"]
+    # single choice enforced, labels checked
+    assert client.post("/api/events", headers=OP, json={"from": "ada", "kind": "answer", "ref": ask["id"], "choice": ["ship now", "abandon"]}).status_code == 422
+    assert client.post("/api/events", headers=OP, json={"from": "ada", "kind": "answer", "ref": ask["id"], "choice": ["yolo"]}).status_code == 422
+    ans = client.post("/api/events", headers=OP, json={"from": "ada", "kind": "answer", "ref": ask["id"], "choice": ["ship now"], "body": "after lunch"}).json()
+    assert ans["choice"] == ["ship now"] and ans["to"] == "@atlas"
+    t = client.get(f"/api/threads/{ask['id']}", headers=OP).json()
+    assert t["status"] == "answered" and t["choice"] == ["ship now"] and t["resolution"] == "after lunch"
+
+
+def test_options_multi_and_default(client):
+    req = client.post("/api/events", headers=AGENT, json={
+        "from": "atlas", "to": "@ada", "kind": "request", "body": "which?", "multi": True,
+        "options": [{"label": "a"}, {"label": "b"}, {"label": "c"}]}).json()
+    ans = client.post("/api/events", headers=OP, json={"from": "ada", "kind": "answer", "ref": req["id"], "choice": ["a", "c"]})
+    assert ans.status_code == 200 and ans.json()["choice"] == ["a", "c"]
+    ask = client.post("/api/events", headers=AGENT, json={
+        "from": "atlas", "to": "@ada", "kind": "ask", "body": "q", "options": [{"label": "x"}, {"label": "y"}],
+        "default": "y", "deadline": (datetime.now(UTC) + timedelta(seconds=0.2)).isoformat()}).json()
+    for _ in range(40):
+        t = client.get(f"/api/threads/{ask['id']}", headers=OP).json()
+        if t["status"] != "open":
+            break
+        asyncio.run(asyncio.sleep(0.05))
+    assert t["status"] == "defaulted" and t["choice"] == ["y"]
+    # options only where they belong
+    assert client.post("/api/events", headers=AGENT, json={"from": "atlas", "to": "@ada", "kind": "note", "body": "x",
+                                                          "options": [{"label": "a"}, {"label": "b"}]}).status_code == 422

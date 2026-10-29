@@ -77,13 +77,22 @@ def is_for_me(ev: dict, me: str, operator: str = "operator") -> bool:
     return False
 
 
-def render(ev: dict) -> str:
+def render(ev: dict, operator: str = "operator") -> str:
     """One event as the line the model sees."""
     kind, frm, body = ev.get("kind"), ev.get("from"), ev.get("body", "")
     ref = f" re {ev['ref']}" if ev.get("ref") else ""
     topic = f" [{ev['topic']}]" if ev.get("topic") else ""
     if kind == "answer":
+        if ev.get("choice") is not None:
+            picked = ", ".join(repr(c) for c in ev["choice"]) or "(none of the options)"
+            note = f"\nTheir comment: {body}" if body else ""
+            return (f"{frm} answered {ev.get('ref')} → chose {picked}.{note}\n"
+                    "(Act on this choice; it supersedes the default.)")
         return f"{frm} answered {ev.get('ref')}: {body}\n(Act on this answer; it supersedes the default.)"
+    if kind == "reply" and frm == operator and ev.get("ref"):
+        return (f"{frm} replied re {ev['ref']}: {body}\n"
+                f"(If {ev['ref']} is your open question, they want more before deciding: answer with "
+                f"post(kind='reply', ref='{ev['ref']}', to='@{frm}'). It stays open, and any deadline still applies.)")
     if kind == "defaulted":
         return (f"ask {ev.get('ref')} reached its deadline unanswered → take the DEFAULT: {body}\n"
                 "(Proceed with the default and say so in your next status.)")
@@ -345,7 +354,7 @@ class Link:
             self.halted = None
         self.state.save()
         if is_for_me(ev, me, self.operator):
-            await self._push(render(ev), {
+            await self._push(render(ev, self.operator), {
                 "source": "orchestra", "kind": str(ev.get("kind")), "from": str(ev.get("from")),
                 "id": str(ev.get("id")), "ref": str(ev.get("ref") or ""), "seq": str(ev.get("seq")),
             })
