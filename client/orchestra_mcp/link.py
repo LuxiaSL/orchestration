@@ -100,7 +100,8 @@ CLIENT_BUILD = _client_build()
 
 CONTINUITY_DIR = Path(os.environ.get("ORCHESTRA_CONTINUITY_DIR")
                       or Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")) / "continuity")
-_HANDOFF_HEADER = re.compile(r"^<!-- continuity handoff, (?P<why>[^,]*), (?P<at>[0-9TZ:.\-]+); transcript: [^\n]*-->\s*")
+# the "why" may hold commas ("on request, from the transcript text"): the timestamp is what ends it
+_HANDOFF_HEADER = re.compile(r"^<!-- continuity handoff, (?P<why>.*?), (?P<at>\d{4}-[0-9TZ:.\-]+); transcript: [^\n]*-->\s*")
 
 
 def read_handoff(session_id: str | None, after_mtime: float) -> dict | None:

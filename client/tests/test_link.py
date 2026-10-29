@@ -159,3 +159,6 @@ def test_read_handoff(tmp_path, monkeypatch):
     assert h["text"].startswith("## Where we are") and "/home/x" not in h["text"]  # local transcript path stripped
     assert L.read_handoff("sid-1", h["mtime"]) is None  # already sent
     assert L.read_handoff("nope", 0.0) is None and L.read_handoff(None, 0.0) is None
+    (d / "latest.md").write_text("<!-- continuity handoff, on request, from the transcript text, 2026-10-29T08:35:50.210Z; transcript: /home/x/t.jsonl -->\n\n## Where we are\nx\n")
+    h = L.read_handoff("sid-1", 0.0)
+    assert h["why"] == "on request, from the transcript text" and h["text"].startswith("## Where") and "/home/x" not in h["text"]
