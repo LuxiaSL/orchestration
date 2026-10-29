@@ -126,6 +126,14 @@ details.closed summary { cursor: pointer; color: var(--muted); font-size: 13px; 
 .ev.status .txt { color: var(--muted); }
 .ev.op .head b { text-decoration: underline; text-underline-offset: 3px; }
 .ev.ask, .ev.halt { border-left: 6px solid transparent; border-image: repeating-linear-gradient(135deg, var(--fg) 0 2px, transparent 2px 5px) 6; }
+.search { display: flex; gap: 8px; margin: 0 0 10px; }
+.search input { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 2px; padding: 7px 10px; }
+.search input:focus { border-color: var(--fg); outline: none; }
+.searchnote { font-size: 12.5px; color: var(--muted); margin: -4px 0 8px; display: flex; gap: 10px; align-items: baseline; }
+.idlink { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.idlink:hover { color: var(--fg); }
+.mini { background: transparent; border: 1px solid var(--line); color: var(--muted); padding: 2px 8px; font-size: 12.5px; cursor: pointer; border-radius: 2px; }
+.mini:hover { border-color: var(--fg); color: var(--fg); }
 .ev .re { position: absolute; top: 8px; right: 6px; color: var(--faint); font-size: 12px; visibility: hidden; background: var(--surface2); padding-left: 6px; }
 .ev:hover .re { visibility: visible; }
 
@@ -213,7 +221,10 @@ aside#side { align-self: start; position: sticky; top: 72px; }
   </nav>
   <main>
     <section id="inbox" class="active">
-      <div class="sec-h"><h2>Inbox</h2><span class="n" id="openCount"></span></div>
+      <div class="sec-h"><h2>Inbox</h2><span class="n" id="openCount"></span>
+        <div class="tools"><select class="mini" id="inboxSort" title="sort the inbox">
+          <option value="urgent">urgent first</option><option value="new">newest</option><option value="old">oldest</option><option value="who">by session</option>
+        </select></div></div>
       <div id="open"></div>
       <details class="closed"><summary>recently closed</summary><div id="closed" style="margin-top:12px"></div></details>
       <div class="sec-h sent-h"><h2>Your requests</h2><span class="n" id="sentCount"></span></div>
@@ -225,8 +236,11 @@ aside#side { align-self: start; position: sticky; top: 72px; }
         <div class="tools">
           <label><input type="checkbox" id="hideStatus"> hide status</label>
           <label><input type="checkbox" id="onlyMine"> mine</label>
+          <button class="mini" id="feedOrder" title="sort the bus">newest first</button>
         </div>
       </div>
+      <div class="search"><input id="q" type="search" placeholder="search: text, @handle, or an id" autocomplete="off" spellcheck="false"></div>
+      <div class="searchnote" id="searchNote" hidden></div>
       <div id="events"></div>
     </section>
 
@@ -350,7 +364,7 @@ function threadCard(t, closed) {
     foot = `<div class="res"><b>${esc(t.status)}</b>${t.resolution ? " · " + esc(t.resolution) : ""} · ${ago(t.resolved_at || t.ts)}</div>`;
   }
   return `<div class="card ${k}${closed ? " done" : ""}" id="t-${t.id}">
-    <div class="meta"><span class="tag ${k}">${k}</span><span class="who">${esc(t.from)}</span>${topic}<span>${ago(t.ts)}</span><span class="id">${t.id}</span></div>
+    <div class="meta"><span class="tag ${k}">${k}</span><span class="who">${esc(t.from)}</span>${topic}<span>${ago(t.ts)}</span><span class="id idlink" data-id="${t.id}">${t.id}</span></div>
     <div class="body">${esc(t.body)}</div>${extra}${foot}</div>`;
 }
 // Re-rendering replaces nodes: that drops focus from a box being typed in and removes the
@@ -381,8 +395,15 @@ function renderInbox() {
   inboxStale = false;
   keepFocus(renderInboxNow);
 }
+const INBOX_SORT = {
+  urgent: null,  // server order: asks by deadline, then the rest by age
+  new: (a, b) => b.ts.localeCompare(a.ts),
+  old: (a, b) => a.ts.localeCompare(b.ts),
+  who: (a, b) => a.from.localeCompare(b.from) || (a.kind === "ask" ? -1 : 0) - (b.kind === "ask" ? -1 : 0) || a.ts.localeCompare(b.ts),
+};
 function renderInboxNow() {
-  const open = state.inbox.open, closed = state.inbox.closed;
+  const cmp = INBOX_SORT[$("#inboxSort").value];
+  const open = cmp ? [...state.inbox.open].sort(cmp) : state.inbox.open, closed = state.inbox.closed;
   $("#open").innerHTML = open.length ? open.map((t) => threadCard(t, false)).join("") : `<div class="empty">inbox zero — everyone's cooking</div>`;
   $("#closed").innerHTML = closed.map((t) => threadCard(t, true)).join("") || `<div class="empty">nothing yet</div>`;
   document.querySelectorAll("textarea[data-draft]").forEach((ta) => {
@@ -396,13 +417,13 @@ function sentCard(t) {
   const answers = (t.answers && t.answers.length) ? t.answers
     : (t.status === "answered" ? [{ from: t.resolved_by, body: t.resolution, ts: t.resolved_at }] : []);
   const list = answers.length
-    ? answers.map((a) => `<div class="ans"><span class="who">${esc(a.from)}</span><span class="when">${a.ts ? ago(a.ts) : ""}</span><div class="txt">${esc(a.body)}</div></div>`).join("")
+    ? answers.map((a) => `<div class="ans"><span class="who">${esc(a.from)}</span><span class="when">${a.kind === "reply" ? "reply · " : ""}${a.ts ? ago(a.ts) : ""}</span>${a.id ? `<span class="when idlink" data-id="${esc(a.id)}">${esc(a.id)}</span>` : ""}<div class="txt">${esc(a.body)}</div></div>`).join("")
     : `<div class="waiting">no answers yet</div>`;
   const open = t.status === "open";
   const tail = open ? `<div class="reply"><div class="row"><span class="spacer"></span><button class="btn" onclick="ack('${t.id}')">close</button></div></div>`
     : `<div class="res"><b>${esc(t.status)}</b> · ${ago(t.resolved_at || t.ts)}</div>`;
   return `<div class="card request sent${open ? "" : " done"}" id="t-${t.id}">
-    <div class="meta"><span class="tag">${esc(t.kind)}</span><span class="who">→ ${esc(t.to)}</span><span>${ago(t.ts)}</span><span>${answers.length} answer${answers.length === 1 ? "" : "s"}</span><span class="id">${t.id}</span></div>
+    <div class="meta"><span class="tag">${esc(t.kind)}</span><span class="who">→ ${esc(t.to)}</span><span>${ago(t.ts)}</span><span>${answers.length} answer${answers.length === 1 ? "" : "s"}</span><span class="id idlink" data-id="${t.id}">${t.id}</span></div>
     <div class="body">${esc(t.body)}</div>${list}${tail}</div>`;
 }
 function renderSent() {
@@ -426,28 +447,66 @@ function ack(id) { closeThread("ack", id, (drafts[id] || "").trim()); }
 
 // ---- bus ----
 function evRow(e) {
-  const ref = e.ref ? `<span>re ${esc(e.ref)}</span>` : "";
+  const ref = e.ref ? `<span class="idlink" data-id="${esc(e.ref)}">re ${esc(e.ref)}</span>` : "";
   const topic = e.topic ? `<span>#${esc(e.topic)}</span>` : "";
   const extra = e.kind === "ask" ? `\n→ default: ${e.default}` : "";
   const cls = [e.kind, e.from === OP() ? "op" : ""].join(" ");
   return `<div class="ev ${esc(cls)}" data-from="${esc(e.from)}" title="click to address ${esc(e.from)}">
     <div class="ts" title="${esc(e.ts)}">${hhmm(e.ts)}</div>
-    <div><div class="head"><b>${esc(e.from)}</b><span>→ ${esc(e.to)}</span><span class="k">${esc(e.kind)}</span>${ref}${topic}<span class="re">↩ address</span></div>
+    <div><div class="head"><b>${esc(e.from)}</b><span>→ ${esc(e.to)}</span><span class="k">${esc(e.kind)}</span><span class="idlink" data-id="${esc(e.id)}">${esc(e.id)}</span>${ref}${topic}<span class="re">↩ address</span></div>
     <div class="txt">${esc(e.body)}${esc(extra)}</div></div></div>`;
 }
 const feedShows = (e) => (!$("#hideStatus").checked || e.kind !== "status") && (!$("#onlyMine").checked || e.from === OP() || e.to === "@" + OP());
+let newestFirst = recall("orc-feed-order") !== "old";
+let searchQ = "", searchTimer = null;
 function prependEvent(e) {
+  if (searchQ) { scheduleSearch(); return; }
   if (!feedShows(e)) return;
   const box = $("#events");
   const empty = box.querySelector(".empty"); if (empty) empty.remove();
-  box.insertAdjacentHTML("afterbegin", evRow(e));
-  while (box.children.length > 300) box.lastElementChild.remove();
+  box.insertAdjacentHTML(newestFirst ? "afterbegin" : "beforeend", evRow(e));
+  while (box.children.length > 300) (newestFirst ? box.lastElementChild : box.firstElementChild).remove();
 }
 function renderFeed() {
-  const hide = $("#hideStatus").checked, mine = $("#onlyMine").checked;
-  const shown = events.filter((e) => (!hide || e.kind !== "status") && (!mine || e.from === OP() || e.to === "@" + OP()));
-  $("#events").innerHTML = shown.slice(-300).reverse().map(evRow).join("") || `<div class="empty">quiet bus</div>`;
+  $("#feedOrder").textContent = newestFirst ? "newest first" : "oldest first";
+  if (searchQ) return runSearch();
+  $("#searchNote").hidden = true;
+  const shown = events.filter(feedShows).slice(-300);
+  if (newestFirst) shown.reverse();
+  $("#events").innerHTML = shown.map(evRow).join("") || `<div class="empty">quiet bus</div>`;
 }
+function scheduleSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 250); }
+async function runSearch() {
+  const q = searchQ;
+  if (!q) return renderFeed();
+  try {
+    const r = await api(`/api/search?q=${encodeURIComponent(q)}&limit=300`);
+    if (q !== searchQ) return;  // a newer query is in flight
+    const hits = r.events.filter(feedShows);
+    if (!newestFirst) hits.reverse();
+    $("#events").innerHTML = hits.map(evRow).join("") || `<div class="empty">nothing matches “${esc(q)}”</div>`;
+    const note = $("#searchNote");
+    note.innerHTML = `<span>${hits.length} match${hits.length === 1 ? "" : "es"} for “${esc(q)}”</span><button class="mini" onclick="setSearch('')">clear</button>`;
+    note.hidden = false;
+    // an id that names an inbox thread: point at it there too
+    const card = document.getElementById("t-" + q.replace(/^#/, ""));
+    if (card) { card.classList.add("flash"); setTimeout(() => card.classList.remove("flash"), 2500); }
+  } catch (e) { toast("search failed: " + e.message); }
+}
+function setSearch(q) {
+  searchQ = q.trim(); $("#q").value = searchQ;
+  if (searchQ && matchMedia("(max-width: 820px)").matches) showTab("feed");
+  renderFeed();
+}
+$("#q").addEventListener("input", () => { searchQ = $("#q").value.trim(); searchQ ? scheduleSearch() : renderFeed(); });
+$("#q").addEventListener("keydown", (e) => { if (e.key === "Escape") setSearch(""); });
+$("#feedOrder").onclick = () => { newestFirst = !newestFirst; store("orc-feed-order", newestFirst ? undefined : "old"); renderFeed(); };
+$("#inboxSort").value = recall("orc-inbox-sort") || "urgent";
+$("#inboxSort").onchange = () => { store("orc-inbox-sort", $("#inboxSort").value); if (state) keepFocus(renderInboxNow); };
+document.addEventListener("click", (e) => {
+  const l = e.target.closest(".idlink"); if (!l) return;
+  e.stopPropagation(); e.preventDefault(); setSearch(l.dataset.id);
+}, true);
 $("#events").addEventListener("click", (e) => {
   const row = e.target.closest(".ev"); if (!row) return;
   const from = row.dataset.from;

@@ -170,3 +170,17 @@ def test_refusal_names_the_reason(client):
     req = client.post("/api/events", headers=AGENT, json={"from": "atlas", "to": "@hermes", "kind": "request", "body": "?"}).json()
     r = client.post("/api/events", headers=AGENT, json={"from": "zeus", "kind": "answer", "ref": req["id"], "body": "x"})
     assert r.status_code == 403 and "@hermes" in r.json()["detail"]
+
+
+def test_replies_collect_on_thread_and_search(client):
+    req = client.post("/api/events", headers=OP, json={"from": "ada", "to": "@all", "kind": "request", "body": "roundup?"}).json()
+    rep = client.post("/api/events", headers=AGENT, json={"from": "writer", "kind": "reply", "ref": req["id"], "body": "drained; held bench a99ef"}).json()
+    t = client.get(f"/api/threads/{req['id']}", headers=OP).json()
+    assert [(a["from"], a["kind"]) for a in t["answers"]] == [("writer", "reply")]
+    # exact id finds the message and everything pointing at it, newest first
+    hits = client.get("/api/search", params={"q": req["id"]}, headers=OP).json()["events"]
+    assert [h["id"] for h in hits] == [rep["id"], req["id"]]
+    assert [h["id"] for h in client.get("/api/search", params={"q": rep["id"]}, headers=OP).json()["events"]] == [rep["id"]]
+    assert client.get("/api/search", params={"q": "A99EF"}, headers=OP).json()["count"] == 1
+    assert client.get("/api/search", params={"q": "@writer"}, headers=OP).json()["count"] == 1
+    assert client.get("/api/search", params={"q": "nothing-like-this"}, headers=OP).json()["count"] == 0

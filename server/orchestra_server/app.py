@@ -200,6 +200,11 @@ def create_app(settings: Settings) -> FastAPI:
         return StreamingResponse(gen(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
+    @app.get("/api/search")
+    async def search(q: str, limit: int = 200, _: Principal = Depends(principal)) -> dict:
+        evs = bus.search(q[:200], limit=min(max(limit, 1), 1000))
+        return {"q": q, "count": len(evs), "events": [e.wire() for e in evs]}
+
     @app.get("/api/threads/{thread_id}")
     async def get_thread(thread_id: str, _: Principal = Depends(principal)) -> dict:
         t = bus.threads.get(thread_id)
@@ -289,7 +294,10 @@ def main() -> None:
     settings = Settings.from_env()
     host = os.environ.get("ORCHESTRA_HOST", "127.0.0.1")
     port = int(os.environ.get("ORCHESTRA_PORT", "7460"))
-    uvicorn.run(create_app(settings), host=host, port=port, workers=1, log_level="info")
+    # SSE streams never close on their own, so graceful shutdown must be bounded or every
+    # restart waits out systemd's stop timeout. Clients reconnect (EventSource retry, mcp backoff).
+    uvicorn.run(create_app(settings), host=host, port=port, workers=1, log_level="info",
+                timeout_graceful_shutdown=3)
 
 
 if __name__ == "__main__":

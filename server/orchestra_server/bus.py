@@ -84,13 +84,17 @@ class Bus:
             t = self.threads[ev.ref]
             if t.to == "@all" and ev.kind == "answer" and ev.from_ != t.from_:
                 # A broadcast request collects one answer per session; only its opener closes it.
-                t.answers.append({"from": ev.from_, "body": ev.body, "ts": ev.ts.isoformat(), "id": ev.id})
+                t.answers.append({"from": ev.from_, "body": ev.body, "ts": ev.ts.isoformat(), "id": ev.id, "kind": "answer"})
                 return
             if t.status == "open":
                 t.status = {"answer": "answered", "ack": "acked", "defaulted": "defaulted", "withdraw": "withdrawn"}[ev.kind]  # type: ignore[assignment]
                 t.resolution = ev.body or (t.default if ev.kind == "defaulted" else None)
                 t.resolved_at = ev.ts
                 t.resolved_by = ev.from_
+        elif ev.kind == "reply" and ev.ref in self.threads and ev.from_ != self.threads[ev.ref].from_:
+            # Replies are comments, not resolutions, but they belong with the thread they answer.
+            self.threads[ev.ref].answers.append(
+                {"from": ev.from_, "body": ev.body, "ts": ev.ts.isoformat(), "id": ev.id, "kind": "reply"})
 
     # -- write --------------------------------------------------------------
 
@@ -146,6 +150,24 @@ class Bus:
         # seq is monotonic but may have gaps if a damaged line was skipped at replay.
         start = bisect.bisect_right(self.events, after, key=lambda e: e.seq)
         return self.events[start : start + limit]
+
+    def search(self, q: str, limit: int = 200) -> list[Event]:
+        """Exact id/ref matches first (a thread and everything that points at it), then text."""
+        q = q.strip()
+        if not q:
+            return []
+        ql = q.lower().lstrip("#")
+        exact = [e for e in self.events if e.id == ql or e.ref == ql]
+        if exact:
+            return exact[-limit:][::-1]
+        handle = ql[1:] if ql.startswith("@") else None
+        def hit(e: Event) -> bool:
+            if handle is not None:
+                return e.from_ == handle or e.to == "@" + handle
+            return (ql in e.body.lower() or ql in e.from_ or ql in e.to or ql == e.kind
+                    or (e.topic is not None and ql in e.topic.lower()))
+        out = [e for e in reversed(self.events) if hit(e)]
+        return out[:limit]
 
     def subscribe(self, after: int) -> asyncio.Queue[Event]:
         """Backlog from `after` preloaded, then live. Same tick, so nothing slips between."""
