@@ -33,8 +33,8 @@ class Identity:
     status: str | None
     pid: int | None
     host: str
-    source: str
-    bridge: str | None = None  # Remote Control session id, when the session has one  # "env" | "session-registry" | "fallback"
+    source: str  # "env" | "session-registry" | "fallback"
+    bridge: str | None = None  # Remote Control session id, when the session has one
 
 
 def _ppid(pid: int) -> int | None:
