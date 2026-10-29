@@ -35,6 +35,7 @@ class Settings:
     operator_token: str
     operator: str = "operator"
     vapid_sub: str = "mailto:orchestra@example.com"
+    client_build: str | None = None  # the client build the deploy shipped with
     digest_delay_s: float = 180.0
     sweep_interval_s: float = 10.0
     cookie_secure: bool = True
@@ -66,6 +67,7 @@ class Settings:
         return cls(
             data_dir=data, agent_token=agent, operator_token=op_tok, operator=operator,
             vapid_sub=os.environ.get("ORCHESTRA_VAPID_SUB", "mailto:orchestra@example.com"),
+            client_build=os.environ.get("ORCHESTRA_CLIENT_BUILD") or None,
             digest_delay_s=float(os.environ.get("ORCHESTRA_DIGEST_S", "180")),
             cookie_secure=os.environ.get("ORCHESTRA_COOKIE_SECURE", "1") != "0",
         )
@@ -248,7 +250,7 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/api/state")
     async def state(who: Principal = Depends(principal)) -> dict:
         return {
-            "head": bus.head, "you": who, "operator": settings.operator, "inbox": bus.inbox(),
+            "head": bus.head, "you": who, "operator": settings.operator, "client_build": settings.client_build, "inbox": bus.inbox(),
             "presence": bus.live_presence(operator_view=(who == "operator")),
             "push": {"public_key": pusher.public_key, "subscriptions": len(pusher.subs)} if who == "operator" else None,
         }

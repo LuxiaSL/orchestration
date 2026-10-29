@@ -10,6 +10,7 @@ Environment=ORCHESTRA_HOST=127.0.0.1
 Environment=ORCHESTRA_PORT=7460
 Environment=ORCHESTRA_OPERATOR=@OPERATOR@
 Environment=ORCHESTRA_VAPID_SUB=@VAPID_SUB@
+Environment=ORCHESTRA_CLIENT_BUILD=@CLIENT_BUILD@
 ExecStart=/opt/orchestra/server/.venv/bin/orchestra-server
 Restart=always
 RestartSec=3

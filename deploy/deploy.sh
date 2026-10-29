@@ -8,8 +8,13 @@ cd "$(dirname "$0")/.."
 : "${DOMAIN:?set DOMAIN, e.g. orchestra.example.com}"
 : "${OPERATOR:?set OPERATOR, your handle on the bus}"
 VAPID_SUB=${VAPID_SUB:-mailto:orchestra@$DOMAIN}
+# The client build this repo would load: sessions reporting a different one need `/mcp reconnect orchestra`.
+CLIENT_BUILD=$(cd client && python3 -I -c 'import hashlib, pathlib
+h = hashlib.sha256()
+for f in sorted(pathlib.Path("orchestra_mcp").glob("*.py")): h.update(f.name.encode() + f.read_bytes())
+print(h.hexdigest()[:8])')
 
-render() { sed -e "s|@DOMAIN@|$DOMAIN|g" -e "s|@OPERATOR@|$OPERATOR|g" -e "s|@VAPID_SUB@|$VAPID_SUB|g" "$1"; }
+render() { sed -e "s|@DOMAIN@|$DOMAIN|g" -e "s|@OPERATOR@|$OPERATOR|g" -e "s|@VAPID_SUB@|$VAPID_SUB|g" -e "s|@CLIENT_BUILD@|$CLIENT_BUILD|g" "$1"; }
 
 ssh "$HOST" "mkdir -p /opt/orchestra/server"
 rsync -az --delete --exclude .venv --exclude __pycache__ --exclude .pytest_cache --exclude tests \

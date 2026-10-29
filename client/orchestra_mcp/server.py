@@ -21,7 +21,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field
 
-from .link import Config, ConfigError, Link, render
+from .link import CLIENT_BUILD, Config, ConfigError, Link, render
 
 CHANNEL_METHOD = "notifications/claude/channel"
 
@@ -152,7 +152,7 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         """Your handle on the bus, connection state, and anything pending for you."""
         ident = link.me
         return {
-            "handle": ident.handle, "name": ident.name, "session_id": ident.session_id,
+            "handle": ident.handle, "name": ident.name, "session_id": ident.session_id, "build": CLIENT_BUILD,
             "renamed_from": [h for h in link.my_handles() if h != ident.handle] or None,
             "identity_source": ident.source, "bus": config.url if config else None,
             "config_error": config_error, "connected": link.connected, "last_error": link.last_error,

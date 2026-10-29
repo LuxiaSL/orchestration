@@ -8,6 +8,7 @@ the default locally if the deadline passes while the server is dark.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -83,6 +84,19 @@ def is_for_me(ev: dict, me: str, operator: str = "operator") -> bool:
         return ev.get("from") == operator or ev.get("kind") in PEER_BROADCAST_PUSH
     return False
 
+
+def _client_build() -> str:
+    """Hash of this package's source as loaded: tells a stale client (needs /mcp reconnect) from a current one."""
+    h = hashlib.sha256()
+    for f in sorted(Path(__file__).parent.glob("*.py")):
+        try:
+            h.update(f.name.encode() + f.read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:8]
+
+
+CLIENT_BUILD = _client_build()
 
 _ID_RE = re.compile(r"\b[amnr][0-9a-f]{6}\b")
 
@@ -499,6 +513,7 @@ class Link:
                 **({"usage": usage.wire()} if usage else {}),
                 **({"bridge": ident.bridge} if ident.bridge else {}),
                 **({"cursor": self.state.cursor} if self.state.cursor is not None else {}),
+                "build": CLIENT_BUILD,
             })
         except Exception:
             pass  # the stream loop owns connectivity reporting
