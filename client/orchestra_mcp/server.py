@@ -9,6 +9,7 @@ are checked at startup and fail loudly rather than silently not pushing.
 
 from __future__ import annotations
 
+import json
 import inspect
 import sys
 from collections.abc import AsyncIterator
@@ -21,7 +22,8 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field
 
-from .link import CLIENT_BUILD, Config, ConfigError, Link, render
+from .link import CLIENT_BUILD, CONTINUITY_DIR, Config, ConfigError, Link, render
+from .recall import Recall, locate
 
 CHANNEL_METHOD = "notifications/claude/channel"
 
@@ -36,6 +38,8 @@ Talking to {op} (pick the lightest that fits):
 - ask_human: only for something irreversible, cross-boundary, or a taste call you can't make. It MUST carry a default and a deadline. Keep doing other work; at the deadline you'll be told to take the default. Never sit idle waiting.
 
 Catching up: read() gives one line per event (not your own posts) from your cursor; get(id) for one in full; read(thread=id) for a request and its replies; read(topic=...) or since=... to narrow.
+
+After a compaction: recall_search(query) and recall_read(line) reach back into your own full transcript (local, never sent) for exact ids, paths, numbers and the user's own words that the summary dropped. mark(text) flags a moment (the user's exact words, a correction, the thread you're chasing) to be carried verbatim into the next handoff note.
 
 Talking to peers: post(to='@handle' or '@all'; a unique prefix like '@api' works for 'api-refactor'). Keep posts short (~600 chars), and link a file for detail. kind=status for routine progress (not pushed to anyone), info for things others should know now (pushed), request for a question to a peer (they answer with kind=answer, ref=<id>).
 
@@ -325,6 +329,61 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         except ToolError:
             pass  # not a thread
         return out
+
+    recall = Recall()
+
+    def _transcript():
+        path = locate(link.me.session_id, link.me.cwd)
+        if path is None:
+            raise ToolError("can't find this session's transcript (no session id, or not under ~/.claude/projects)")
+        return path
+
+    @server.tool()
+    async def recall_search(
+        query: Annotated[str, Field(description="Words that must all appear (case-insensitive): an id, a path, a phrase the user said.")],
+        limit: Annotated[int, Field(ge=1, le=50)] = 15,
+        who: Annotated[str | None, Field(description="Only entries by: 'you' (the user), 'me', 'tool' (calls), 'result' (tool output), 'summary'.")] = None,
+    ) -> dict:
+        """Search this session's own full transcript, including everything before any compaction. Use it when the
+        summary or handoff note lacks an exact id, path, number, the user's own words, or why something was decided.
+        Reads the local transcript file only; nothing is sent anywhere. Newest hits first."""
+        return recall.search(_transcript(), query, limit, who)
+
+    @server.tool()
+    async def mark(
+        text: Annotated[str, Field(min_length=1, max_length=2000, description="Exactly the words to keep: copy the user's message or the line that matters, don't paraphrase.")],
+        said_by: Annotated[str, Field(description="Whose words: 'user' or 'me'.")] = "user",
+        why: Annotated[str | None, Field(max_length=300, description="A few words on why it matters.")] = None,
+    ) -> dict:
+        """Mark a moment that must survive a compaction word for word: something the user said that carries a decision,
+        a correction, a preference or the thread you're chasing. With the claude-continuity plugin, every mark is copied
+        verbatim into the next handoff note. Use it sparingly, when losing the exact words would cost something.
+        Local only; nothing is sent anywhere."""
+        sid = link.me.session_id
+        if not sid:
+            raise ToolError("no session id: can't tell which session's marks to write")
+        d = CONTINUITY_DIR / sid
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            row = {"ts": datetime.now(UTC).isoformat(timespec="seconds"), "text": text.strip(),
+                   "said_by": link.operator if said_by == "user" else ("me" if said_by == "me" else said_by), "why": why}
+            with (d / "marks.jsonl").open("a") as f:
+                f.write(json.dumps({k: v for k, v in row.items() if v}) + "\n")
+            n = sum(1 for _ in (d / "marks.jsonl").open())
+        except OSError as exc:
+            raise ToolError(f"couldn't write the mark: {exc}") from exc
+        return {"marked": True, "marks_this_session": n, "file": str(d / "marks.jsonl")}
+
+    @server.tool()
+    async def recall_read(
+        line: Annotated[int, Field(ge=1, description="A line from recall_search (or a handoff note's 'where to look').")],
+        before: Annotated[int, Field(ge=0, le=40)] = 4,
+        after: Annotated[int, Field(ge=0, le=80)] = 12,
+        results: Annotated[bool, Field(description="Show tool output and tool inputs in full (otherwise output's first 300 chars and each call's gist).")] = False,
+    ) -> dict:
+        """Read the conversation around a line of this session's own transcript: what was said, which tools ran,
+        and (briefly) what they returned. Bounded to about 14K characters per call."""
+        return recall.read(_transcript(), line, before, after, results)
 
     return server
 

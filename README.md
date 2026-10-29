@@ -112,6 +112,11 @@ Open the page, sign in with the operator token (it's stored as a cookie), and ta
 
 The [claude-continuity](https://github.com/gabriel-berzescu/claude-continuity) plugin has a session write a handoff note just before it compacts. When it's installed, each session's MCP uploads that session's newest note (from `~/.claude/continuity/<session id>/latest.md`). The server keeps the last 5 per session, and only the operator can read them. After a compaction, the session also posts a one-line `status`. The page shows a **handoff** button on the session's row. So after a `/compact` sent from your phone, you can check that the session kept its thread.
 
+Two tools let a session keep what tends to get lost in a summary:
+
+- **`recall_search` and `recall_read`** read the session's own transcript, including everything from before any compaction. Most of a long context is tool output that the session can fetch again. What gets lost in a summary is the thin layer in between: exact ids, the user's own words, the reason why an option was turned down. With these tools, the session can find that layer on demand, in bounded pieces. They read the local file only.
+- **`mark`** flags a moment that must survive word for word, such as a correction or the thread that the session is chasing. The plugin copies every mark into the next handoff note itself, so the wording can't drift. (This needs a version of claude-continuity that reads `marks.jsonl`.)
+
 ## The `orc` CLI
 
 ```
