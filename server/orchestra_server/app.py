@@ -19,7 +19,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from .bus import Bus, now
-from .models import AGENT_KINDS, CLOSING_KINDS, HANDLE_RE, OPERATOR_KINDS, SYSTEM, LoginIn, PostIn, PresenceIn, PushSubscription
+from .models import is_group, is_to, AGENT_KINDS, CLOSING_KINDS, HANDLE_RE, OPERATOR_KINDS, SYSTEM, LoginIn, PostIn, PresenceIn, PushSubscription
 from .push import Pusher
 from .telemetry import Telemetry, Usage, summarize
 
@@ -155,14 +155,14 @@ def create_app(settings: Settings) -> FastAPI:
             thread = bus.threads.get(post.ref or "")
             if thread is None:
                 raise HTTPException(422, f"{post.kind} needs ref= an existing ask/request/note id")
-            if thread.status != "open" and not (thread.to == "@all" and post.kind == "answer"):
+            if thread.status != "open" and not (is_group(thread.to) and post.kind == "answer"):
                 raise HTTPException(409, f"{thread.id} is already {thread.status}")
             if who == "agent":
                 if post.kind == "withdraw" and thread.from_ != post.from_:
                     raise HTTPException(403, "only the opener may withdraw a thread")
                 if post.kind == "answer" and thread.from_ == post.from_:
                     raise HTTPException(403, f"you opened {thread.id}; add to it with kind='reply', or retract it with kind='withdraw'")
-                if post.kind == "answer" and thread.to not in (f"@{post.from_}", "@all"):
+                if post.kind == "answer" and not (thread.to == "@all" or is_to(thread.to, post.from_)):
                     raise HTTPException(403, f"{thread.id} is addressed to {thread.to}, not you; use kind=reply to comment")
         if post.choice is not None:
             thread = bus.threads[post.ref or ""]  # existence checked above (answer is a closing kind)

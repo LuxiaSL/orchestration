@@ -183,7 +183,7 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
     @server.tool()
     async def post(
         body: Annotated[str, Field(description="Plain text. Aim for under ~600 characters (it may be read on a phone); link a file or record path for detail.")],
-        to: Annotated[str, Field(description="'@all' or '@<handle>'; any unique prefix of a handle works (e.g. '@api' for 'api-refactor').")] = "@all",
+        to: Annotated[str, Field(description="'@all', '@<handle>', or several: '@a,@b,@c' (each named session gets it as a direct message, and a request to several collects one answer per session). Any unique prefix of a handle works (e.g. '@api' for 'api-refactor').")] = "@all",
         kind: Annotated[
             Literal["status", "info", "reply", "request", "answer", "withdraw"],
             Field(description="status=routine progress (never pushed); info=others should know now; "
@@ -235,7 +235,7 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
                 scanned_to = int(e["seq"])
                 if ((include_mine or e.get("from") != me) and (topic is None or e.get("topic") == topic)
                         and (kind is None or e.get("kind") == kind)
-                        and (not to_me or e.get("to") in {f"@{h}" for h in link.my_handles()}
+                        and (not to_me or bool({f"@{h}" for h in link.my_handles()} & set((e.get("to") or "").split(",")))
                              or (e.get("to") == "@all" and e.get("from") == link.operator))):
                     out.append(e)
                     if len(out) >= limit:

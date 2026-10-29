@@ -9,17 +9,17 @@ value starts a fresh run rather than producing a negative rate.
 
 from __future__ import annotations
 
-import json
 import math
 import statistics
 import sys
 from collections import Counter, defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
 from .bus import Bus, now
+from .models import is_to, recipients
 
 RETAIN_DAYS = 8
 MAX_BUCKETS = 120
@@ -118,15 +118,15 @@ def summarize(bus: Bus, tel: Telemetry, hours: float) -> dict:
     for e in evs:
         volume[bucket(e.ts)][e.kind] += 1
         senders[e.from_] += 1
-        edges[(e.from_, e.to)] += 1
+        for r in recipients(e.to) or [e.to]:  # a message to several counts once per recipient
+            edges[(e.from_, r)] += 1
         chars[e.kind].append(len(e.body))
 
     # time-to-resolution of threads addressed to the operator, resolved in the window
-    op = "@" + bus.operator
     latency: dict[str, list[float]] = defaultdict(list)
     outcomes: Counter[str] = Counter()
     for t in bus.threads.values():
-        if t.to != op or t.resolved_at is None or t.resolved_at < start:
+        if not is_to(t.to, bus.operator) or t.resolved_at is None or t.resolved_at < start:
             continue
         outcomes[f"{t.kind}:{t.status}"] += 1
         if t.status in ("answered", "acked"):
@@ -173,7 +173,7 @@ def summarize(bus: Bus, tel: Telemetry, hours: float) -> dict:
         "kinds": kinds,
         "totals": {
             "messages": len(evs),
-            "to_operator": sum(1 for e in evs if e.to == op),
+            "to_operator": sum(1 for e in evs if is_to(e.to, bus.operator)),
             "from_operator": sum(1 for e in evs if e.from_ == bus.operator),
             "asks": outcomes.get("ask:answered", 0) + outcomes.get("ask:acked", 0) + outcomes.get("ask:defaulted", 0),
             "asks_defaulted": outcomes.get("ask:defaulted", 0),

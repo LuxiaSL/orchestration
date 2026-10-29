@@ -15,7 +15,7 @@ import json
 import sys
 from pathlib import Path
 
-from .models import Event, PushSubscription
+from .models import Event, PushSubscription, is_to
 
 try:
     from cryptography.hazmat.primitives import serialization
@@ -90,7 +90,7 @@ class Pusher:
 
     def on_event(self, ev: Event) -> None:
         """Sync hook called by the bus after every append."""
-        if ev.to != f"@{self.operator}" and ev.kind != "defaulted":
+        if not is_to(ev.to, self.operator) and ev.kind != "defaulted":
             return
         if ev.kind == "ask":
             when = f" · default at {ev.deadline:%H:%M}Z" if ev.deadline else ""

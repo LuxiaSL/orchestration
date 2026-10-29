@@ -77,8 +77,8 @@ def is_for_me(ev: dict, me: str, operator: str = "operator") -> bool:
     """Should this event interrupt my session?"""
     if ev.get("from") == me:
         return False
-    to = ev.get("to")
-    if to == f"@{me}":
+    to = ev.get("to") or ""
+    if f"@{me}" in to.split(","):  # named, alone or among several: a direct message
         return True
     if to == "@all":
         return ev.get("from") == operator or ev.get("kind") in PEER_BROADCAST_PUSH

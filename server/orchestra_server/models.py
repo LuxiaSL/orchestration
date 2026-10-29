@@ -29,6 +29,21 @@ CLOSING_KINDS: frozenset[str] = frozenset({"answer", "ack", "defaulted", "withdr
 HANDLE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
 
+def recipients(to: str) -> list[str]:
+    """'@a,@b' -> ['@a', '@b']; '@all' -> [] (everyone, not a list)."""
+    return [] if to == "@all" else [r for r in to.split(",") if r]
+
+
+def is_to(to: str, handle: str) -> bool:
+    """Is `handle` one of the named recipients (not merely covered by @all)?"""
+    return f"@{handle}" in recipients(to)
+
+
+def is_group(to: str) -> bool:
+    """@all or several named recipients: a request to a group collects one answer per member."""
+    return to == "@all" or "," in to
+
+
 def slugify(name: str) -> str:
     """'Route Planning Service' -> 'route-planning-service'."""
     slug = re.sub(r"[^a-z0-9._-]+", "-", name.lower()).strip("-._")
@@ -86,11 +101,21 @@ class PostIn(BaseModel):
     @field_validator("to")
     @classmethod
     def _to(cls, v: str) -> str:
-        if not v.startswith("@"):
-            v = "@" + v
-        if v != "@all" and not HANDLE_RE.match(v[1:]):
-            raise ValueError(f"bad address {v!r}: use @all or @<handle>")
-        return v
+        parts = [p for p in re.split(r"[,\s]+", v.strip()) if p]
+        if not parts:
+            raise ValueError("empty address")
+        out: list[str] = []
+        for p in parts:
+            p = p if p.startswith("@") else "@" + p
+            if p != "@all" and not HANDLE_RE.match(p[1:]):
+                raise ValueError(f"bad address {p!r}: use @all, @<handle>, or several handles separated by commas")
+            if p not in out:
+                out.append(p)
+        if "@all" in out and len(out) > 1:
+            raise ValueError("@all already includes everyone; don't combine it with handles")
+        if len(out) > 32:
+            raise ValueError("at most 32 recipients")
+        return ",".join(out)
 
 
 class Event(BaseModel):

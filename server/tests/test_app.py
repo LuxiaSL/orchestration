@@ -336,3 +336,25 @@ def test_list_my_open_threads(client):
     ts = client.get("/api/threads", params={"opened_by": "cartographer"}, headers=AGENT).json()["threads"]
     assert [t["id"] for t in ts] == [a["id"]] and ts[0]["first_line"] == "repo name?"
     assert len(client.get("/api/threads", params={"opened_by": "cartographer", "status": "any"}, headers=AGENT).json()["threads"]) == 2
+
+
+def test_multi_address(client):
+    for h in ("cartographer", "trainer", "route-planning-service", "archive-desk"):
+        client.post("/api/presence", headers=AGENT, json={"handle": h, "cursor": 0})
+    ev = client.post("/api/events", headers=OP, json={"from": "ada", "to": "@cart, @trainer,@route", "kind": "request", "body": "status?"}).json()
+    assert ev["to"] == "@cartographer,@trainer,@route-planning-service"
+    # each named recipient may answer; it stays open for the rest (a group request)
+    for h in ("cartographer", "trainer"):
+        assert client.post("/api/events", headers=AGENT, json={"from": h, "kind": "answer", "ref": ev["id"], "body": f"{h} ok"}).status_code == 200
+    assert client.post("/api/events", headers=AGENT, json={"from": "archive-desk", "kind": "answer", "ref": ev["id"], "body": "x"}).status_code == 403
+    t = client.get(f"/api/threads/{ev['id']}", headers=OP).json()
+    assert t["status"] == "open" and [a["from"] for a in t["answers"]] == ["cartographer", "trainer"]
+    assert client.post("/api/events", headers=AGENT, json={"from": "x1", "to": "@all,@trainer", "kind": "info", "body": "x"}).status_code == 422
+    # a request to the operator plus a session lands in the operator's inbox
+    both = client.post("/api/events", headers=AGENT, json={"from": "trainer", "to": "@ada,@cartographer", "kind": "request", "body": "both?"}).json()
+    assert both["id"] in [x["id"] for x in client.get("/api/state", headers=OP).json()["inbox"]["open"]]
+    # waiting counts multi-addressed mail for each recipient
+    st = client.app.state.bus
+    assert st.waiting_for("trainer", 0) >= 1 and st.waiting_for("archive-desk", 0) == 0
+    tel = client.get("/api/telemetry", params={"hours": 1}, headers=OP).json()
+    assert {"from": "ada", "to": "@trainer", "count": 1} in tel["edges"]

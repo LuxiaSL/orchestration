@@ -135,3 +135,15 @@ def test_peer_broadcast_mute(tmp_path, monkeypatch):
     assert not lk._mine(peer)
     assert lk._mine({"from": "peer", "to": "@quiet-one", "kind": "info"})       # direct still pushes
     assert lk._mine({"from": "ada", "to": "@all", "kind": "notice"})            # operator still pushes
+
+
+def test_multi_address_is_direct_even_when_muted(tmp_path, monkeypatch):
+    from orchestra_mcp import link as L
+    assert L.is_for_me({"from": "peer", "to": "@a,@me,@b", "kind": "status"}, "me")
+    assert not L.is_for_me({"from": "peer", "to": "@a,@b", "kind": "info"}, "me")
+    assert not L.is_for_me({"from": "peer", "to": "@meow", "kind": "info"}, "me")  # no substring matches
+    monkeypatch.setattr(L, "STATE_ROOT", tmp_path)
+    monkeypatch.setenv("ORCHESTRA_HANDLE", "me")
+    lk = L.Link(L.Config(url="http://x", token="t", operator="ada"), None)
+    lk.state.peer_broadcasts = False
+    assert lk._mine({"from": "peer", "to": "@a,@me", "kind": "info"})

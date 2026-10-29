@@ -333,7 +333,7 @@ details.tv .scroll { max-height: 280px; overflow: auto; margin-top: 6px; }
     <aside id="side">
       <div class="desk">
         <h2>Send</h2>
-        <div class="field"><span class="lbl">to</span><div class="chips" id="toChips"></div></div>
+        <div class="field"><span class="lbl">to</span><div><div class="chips" id="toChips"></div><div class="kindhint" style="margin-top:6px">click to add or remove · each one gets it directly</div></div></div>
         <div class="field"><span class="lbl">as</span>
           <div class="seg" id="kindSeg">
             <button data-kind="notice" aria-pressed="true">notice</button>
@@ -709,23 +709,36 @@ function renderSessions() {
       const title = !p.live ? "away: this will be held and delivered when it's back" : p.channel ? "" : "no push lane: launched without the channel flag";
       return `<button class="chip${cls}" data-to="@${esc(p.handle)}"${title ? ` title="${title}"` : ""}>@${esc(p.handle)}${p.live ? "" : " · away"}</button>`;
     })).join("");
-  document.querySelectorAll("#toChips .chip").forEach((c) => (c.onclick = () => setTo(c.dataset.to)));
+  document.querySelectorAll("#toChips .chip").forEach((c) => (c.onclick = () => toggleTo(c.dataset.to)));
   paintCompose();
   const pushOk = state.push && state.push.subscriptions > 0;
   $("#meta").innerHTML = `<span>${live.length} live</span><span class="wide"> · bus #${state.head}</span><span> · push ${pushOk ? "on" : "off"}</span>`;
 }
 const fmtCtx = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "K" : String(n);
+const toList = () => (compose.to === "@all" ? [] : compose.to.split(","));
 function setTo(to) { compose.to = to; paintCompose(); }
+// Pills are multi-select: each named session gets the message as a direct one; @all is exclusive.
+function toggleTo(to) {
+  if (to === "@all") return setTo("@all");
+  const cur = toList();
+  const next = cur.includes(to) ? cur.filter((x) => x !== to) : [...cur, to];
+  setTo(next.length ? next.join(",") : "@all");
+}
+const toLabel = () => compose.to.split(",").join(", ");
 function setKind(k) { compose.kind = k; paintCompose(); }
 function paintCompose() {
   const chips = [...document.querySelectorAll("#toChips .chip")];
-  if (chips.length && !chips.some((c) => c.dataset.to === compose.to)) compose.to = "@all";  // recipient went away
-  chips.forEach((c) => c.setAttribute("aria-pressed", c.dataset.to === compose.to));
+  if (chips.length && compose.to !== "@all") {  // drop recipients that went away entirely
+    const known = new Set(chips.map((c) => c.dataset.to));
+    const kept = toList().filter((t) => known.has(t));
+    compose.to = kept.length ? kept.join(",") : "@all";
+  }
+  chips.forEach((c) => c.setAttribute("aria-pressed", c.dataset.to === "@all" ? compose.to === "@all" : toList().includes(c.dataset.to)));
   document.querySelectorAll("#kindSeg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.kind === compose.kind));
   $("#kindHint").textContent = KIND_HINT[compose.kind];
-  $("#sendTo").textContent = `${compose.kind} → ${compose.to}`;
-  $("#haltBtn").textContent = `⏸ halt ${compose.to}`;
-  $("#resumeBtn").textContent = `▶ resume ${compose.to}`;
+  $("#sendTo").textContent = `${compose.kind} → ${toLabel()}`;
+  $("#haltBtn").textContent = `⏸ halt ${toList().length > 1 ? toList().length + " sessions" : compose.to}`;
+  $("#resumeBtn").textContent = `▶ resume ${toList().length > 1 ? toList().length + " sessions" : compose.to}`;
 }
 function focusCompose() {
   if (matchMedia("(max-width: 820px)").matches) showTab("side");
@@ -735,18 +748,18 @@ document.querySelectorAll("#kindSeg button").forEach((b) => (b.onclick = () => s
 async function send() {
   const body = $("#msg").value.trim(); if (!body) { $("#msg").focus(); return toast("nothing to send"); }
   $("#sendBtn").disabled = true;
-  try { await post({ to: compose.to, kind: compose.kind, body }); $("#msg").value = ""; store("orc-draft"); const away = state.presence.find((p) => "@" + p.handle === compose.to && !p.live);
-    toast(away ? `${compose.kind} queued for ${compose.to}: delivered when it\u2019s back` : `${compose.kind} sent → ${compose.to}`); }
+  try { await post({ to: compose.to, kind: compose.kind, body }); $("#msg").value = ""; store("orc-draft"); const away = state.presence.filter((p) => toList().includes("@" + p.handle) && !p.live).map((p) => "@" + p.handle);
+    toast(away.length ? `${compose.kind} sent → ${toLabel()} · queued for ${away.join(", ")} until back` : `${compose.kind} sent → ${toLabel()}`); }
   catch (e) { toast("failed: " + e.message); }
   finally { $("#sendBtn").disabled = false; }
 }
 async function haltSel() {
-  const why = prompt(`Halt ${compose.to}? Reason (optional):`, ""); if (why === null) return;
-  try { await post({ to: compose.to, kind: "halt", body: why }); toast(`halt → ${compose.to}`); } catch (e) { toast(e.message); }
+  const why = prompt(`Halt ${toLabel()}? Reason (optional):`, ""); if (why === null) return;
+  try { await post({ to: compose.to, kind: "halt", body: why }); toast(`halt → ${toLabel()}`); } catch (e) { toast(e.message); }
 }
 async function resumeSel() {
-  const msg = prompt(`Resume ${compose.to}. Message (optional):`, ""); if (msg === null) return;
-  try { await post({ to: compose.to, kind: "resume", body: msg }); toast(`resume → ${compose.to}`); } catch (e) { toast(e.message); }
+  const msg = prompt(`Resume ${toLabel()}. Message (optional):`, ""); if (msg === null) return;
+  try { await post({ to: compose.to, kind: "resume", body: msg }); toast(`resume → ${toLabel()}`); } catch (e) { toast(e.message); }
 }
 $("#msg").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); });
 $("#msg").addEventListener("input", () => store("orc-draft", $("#msg").value));

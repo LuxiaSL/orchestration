@@ -20,7 +20,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from .models import CLOSING_KINDS, SYSTEM, THREAD_KINDS, Event, PostIn, Presence, PresenceIn, Thread
+from .models import CLOSING_KINDS, SYSTEM, is_group, is_to, recipients, THREAD_KINDS, Event, PostIn, Presence, PresenceIn, Thread
 
 PRESENCE_STALE_S = 180
 PRESENCE_KEEP_DAYS = 7
@@ -88,7 +88,7 @@ class Bus:
             )
         elif ev.kind in CLOSING_KINDS and ev.ref in self.threads:
             t = self.threads[ev.ref]
-            if t.to == "@all" and ev.kind == "answer" and ev.from_ != t.from_:
+            if is_group(t.to) and ev.kind == "answer" and ev.from_ != t.from_:
                 # A broadcast request collects one answer per session; only its opener closes it.
                 t.answers.append({"from": ev.from_, "body": ev.body, "ts": ev.ts.isoformat(), "id": ev.id, "kind": "answer"})
                 return
@@ -118,7 +118,14 @@ class Bus:
         if post.kind in CLOSING_KINDS | {"reply"} and post.ref in self.threads and post.to == "@all":
             opener = self.threads[post.ref].from_
             return f"@{opener}"
-        return self.expand_address(post.to)
+        if post.to == "@all":
+            return post.to
+        out: list[str] = []
+        for r in recipients(post.to):
+            x = self.expand_address(r)
+            if x not in out:
+                out.append(x)
+        return ",".join(out)
 
     def expand_address(self, to: str) -> str:
         """@route -> @route-planning-service when that prefix is unique.
@@ -199,7 +206,7 @@ class Bus:
         handle = ql[1:] if ql.startswith("@") else None
         def hit(e: Event) -> bool:
             if handle is not None:
-                return e.from_ == handle or e.to == "@" + handle
+                return e.from_ == handle or is_to(e.to, handle)
             return (ql in e.body.lower() or ql in e.from_ or ql in e.to or ql == e.kind
                     or (e.topic is not None and ql in e.topic.lower()))
         out = [e for e in reversed(self.events) if hit(e)]
@@ -271,9 +278,8 @@ class Bus:
         """Events after `cursor` that would be pushed to `handle` (directed, or the operator's broadcasts)."""
         if cursor is None:
             return 0
-        me = "@" + handle
         return sum(1 for e in self.since(cursor, limit=100_000)
-                   if e.from_ != handle and (e.to == me or (e.to == "@all" and e.from_ == self.operator)))
+                   if e.from_ != handle and (is_to(e.to, handle) or (e.to == "@all" and e.from_ == self.operator)))
 
     def live_presence(self, operator_view: bool = False) -> list[dict]:
         cutoff = now().timestamp() - PRESENCE_STALE_S
@@ -311,7 +317,7 @@ class Bus:
         return out
 
     def inbox(self, recent: int = 50) -> dict:
-        mine = [t for t in self.threads.values() if t.to == f"@{self.operator}"]
+        mine = [t for t in self.threads.values() if is_to(t.to, self.operator)]
         open_ = sorted(
             (t for t in mine if t.status == "open"),
             key=lambda t: (t.kind != "ask", t.deadline or datetime.max.replace(tzinfo=UTC), t.ts),

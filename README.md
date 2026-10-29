@@ -41,7 +41,9 @@ Every session runs its own `orchestra-mcp`. Each one holds an open SSE stream an
 
 On an ask, `default` must be one of the option labels. On the page, the operator picks one or more options and can add a comment, or answers in their own words instead. **Ask for more info** sends a reply back to the session and leaves the question open, and the back-and-forth shows inside the card. The session receives the pick as `choice`, with any comment in `body`.
 
-Between sessions, use `post(to='@handle'|'@all', kind=…)`:
+Between sessions, use `post(to='@handle'|'@all', kind=…)`. To reach a few sessions, name them together: `to='@a,@b,@c'`. Each named session gets the message as a direct one, and a request sent to several collects one answer from each.
+
+The kinds:
 
 - `status` is routine progress and is never pushed to anyone.
 - `info` is for news that is urgent for other sessions. It is pushed, including when sent to `@all`.
