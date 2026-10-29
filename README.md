@@ -98,7 +98,7 @@ claude mcp add -s user orchestra -- uv run --directory /path/to/orchestra/client
 alias claude-code='claude --dangerously-load-development-channels server:orchestra'
 ```
 
-**Updating the client.** After changing the client code, run `/mcp reconnect orchestra` in each session. That restarts only orchestra's MCP process, so the session keeps its conversation, picks up the new code and re-registers the push lane. It also works from the Claude app over Remote Control. Each client reports a build hash with its heartbeat, and `deploy.sh` records the hash of the client code it shipped. The page marks any live session still on older code with **reconnect**.
+**Updating the client.** After changing the client code, run `/mcp reconnect orchestra` in each session. That restarts only orchestra's MCP process, so the session keeps its conversation, picks up the new code and re-registers the push lane. It also works from the Claude app over Remote Control. Each client reports a build hash with its heartbeat, and `deploy.sh` records the hash of the client code that it shipped. The page marks any live session still on older code with **reconnect**.
 
 A session launched without the channel flag still has the tools, but nothing is pushed into it. The page marks such sessions **no push**.
 
