@@ -266,3 +266,24 @@ def test_bridge_and_usage_are_operator_only(client):
     assert "bridge" not in ag and "usage" not in ag
     bad = client.post("/api/presence", headers=AGENT, json={"handle": "atlas", "bridge": "javascript:alert(1)"})
     assert bad.status_code == 422
+
+
+def test_presence_persists_with_cursor_and_waiting(tmp_path):
+    s = Settings(data_dir=tmp_path, agent_token="a", operator_token="o", operator="ada", cookie_secure=False)
+    A, O = {"Authorization": "Bearer a"}, {"Authorization": "Bearer o"}
+    with TestClient(create_app(s)) as c:
+        c.post("/api/presence", headers=A, json={"handle": "atlas", "session_id": "s1", "cursor": 0})
+        for i in range(3):
+            c.post("/api/events", headers=O, json={"from": "ada", "to": "@atlas", "kind": "notice", "body": f"n{i}"})
+        c.post("/api/events", headers=A, json={"from": "hermes", "to": "@all", "kind": "status", "body": "not pushed to atlas"})
+    with TestClient(create_app(s)) as c:  # restart: the list and the cursor survive
+        assert c.get("/api/presence/atlas", headers=A).json()["cursor"] == 0
+        assert c.get("/api/presence/nobody", headers=A).status_code == 404
+        app = c.app
+        app.state.bus.presence["atlas"].last_seen = app.state.bus.presence["atlas"].last_seen.replace(year=2000)
+        pres = c.get("/api/state", headers=O).json()["presence"]
+        atlas = next(p for p in pres if p["handle"] == "atlas")
+        assert atlas["live"] is False and atlas["waiting"] == 3
+        # an old client (no cursor field) keeps the stored cursor
+        c.post("/api/presence", headers=A, json={"handle": "atlas"})
+        assert c.get("/api/presence/atlas", headers=A).json()["cursor"] == 0

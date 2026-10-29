@@ -72,7 +72,8 @@ class Settings:
 
 
 def create_app(settings: Settings) -> FastAPI:
-    bus = Bus(settings.data_dir / "bus.jsonl", operator=settings.operator)
+    bus = Bus(settings.data_dir / "bus.jsonl", operator=settings.operator,
+              presence_path=settings.data_dir / "presence.json")
     pusher = Pusher(settings.data_dir, digest_delay_s=settings.digest_delay_s,
                     operator=settings.operator, vapid_sub=settings.vapid_sub)
     bus.on_append.append(pusher.on_event)
@@ -92,6 +93,7 @@ def create_app(settings: Settings) -> FastAPI:
         try:
             yield
         finally:
+            bus.save_presence(force=True)
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
@@ -247,6 +249,14 @@ def create_app(settings: Settings) -> FastAPI:
         if p.usage is not None:
             tel.record(p.handle, p.session_id, Usage.model_validate(p.usage.model_dump()))
         return {"ok": True, "head": bus.head}
+
+    @app.get("/api/presence/{handle}")
+    async def presence_of(handle: str, _: Principal = Depends(principal)) -> dict:
+        """Where a handle left off: a restarted session resumes its push stream from here."""
+        p = bus.presence.get(handle)
+        if p is None:
+            raise HTTPException(404, "never seen")
+        return {"handle": handle, "cursor": p.cursor, "last_seen": p.last_seen.isoformat()}
 
     @app.get("/api/telemetry")
     async def telemetry(hours: float = 24, _: Principal = Depends(operator_only)) -> dict:

@@ -169,6 +169,7 @@ aside#side { align-self: start; position: sticky; top: 72px; }
 .chip:hover { border-color: var(--fg); color: var(--fg); }
 .chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 700; }
 .chip.np { border-style: dashed; }
+.chip.away { border-style: dotted; opacity: .75; }
 .seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--fg); }
 .seg button { background: transparent; border: 0; border-left: 1px solid var(--fg); padding: 6px 4px; cursor: pointer; font-size: 13.5px; }
 .seg button:first-child { border-left: 0; }
@@ -688,16 +689,25 @@ $("#events").addEventListener("click", (e) => {
 
 // ---- sessions + compose ----
 function renderSessions() {
-  const ps = state.presence, live = ps.filter((p) => p.live);
-  $("#liveCount").textContent = `${live.length} live`;
-  $("#sessions").innerHTML = ps.length ? ps.map((p) => `<div class="sess${p.live ? "" : " off"}" data-h="${esc(p.handle)}" title="${esc(p.cwd || "")}">
+  // live first, then away (most recently seen first); away sessions stay addressable: messages wait for them
+  const ps = [...state.presence].sort((a, b) => (b.live - a.live) || b.last_seen.localeCompare(a.last_seen));
+  const live = ps.filter((p) => p.live);
+  const recent = ps.filter((p) => p.live || Date.now() - new Date(p.last_seen) < 3 * 86400e3);
+  $("#liveCount").textContent = `${live.length} live${ps.length > live.length ? ` · ${ps.length - live.length} away` : ""}`;
+  const status = (p) => p.live ? (p.channel ? esc(p.status || "") : "no push")
+    : `away ${ago(p.last_seen).replace(" ago", "")}${p.waiting ? ` · <b>${p.waiting} waiting</b>` : ""}`;
+  $("#sessions").innerHTML = ps.length ? ps.map((p) => `<div class="sess${p.live ? "" : " off"}" data-h="${esc(p.handle)}" title="${esc(p.cwd || "")}${p.live ? "" : " · messages to it are held until it's back"}">
       <span class="dot ${p.live ? "on" : ""}"></span><span class="h">${esc(p.handle)}${p.usage && p.usage.context ? ` <span class="st">· ${fmtCtx(p.usage.context)} ctx</span>` : ""}</span>
-      ${p.bridge ? `<a class="rc" href="https://claude.ai/code/${encodeURIComponent(p.bridge)}" target="_blank" rel="noopener" title="open this session in the Claude app (Remote Control): /compact, /context, /model work there">open ↗</a>` : "<span></span>"}
-      <span class="st">${p.live ? (p.channel ? esc(p.status || "") : "no push") : ago(p.last_seen)}</span></div>`).join("")
+      ${p.bridge && p.live ? `<a class="rc" href="https://claude.ai/code/${encodeURIComponent(p.bridge)}" target="_blank" rel="noopener" title="open this session in the Claude app (Remote Control): /compact, /context, /model work there">open ↗</a>` : "<span></span>"}
+      <span class="st">${status(p)}</span></div>`).join("")
     : `<div class="empty">no sessions have checked in</div>`;
   document.querySelectorAll(".sess").forEach((el) => (el.onclick = (e) => { if (e.target.closest("a")) return; setTo("@" + el.dataset.h); focusCompose(); }));
   $("#toChips").innerHTML = [`<button class="chip" data-to="@all">@all</button>`]
-    .concat(live.map((p) => `<button class="chip${p.channel ? "" : " np"}" data-to="@${esc(p.handle)}"${p.channel ? "" : ` title="no push lane: launched without the channel flag"`}>@${esc(p.handle)}</button>`)).join("");
+    .concat(recent.map((p) => {
+      const cls = !p.live ? " away" : p.channel ? "" : " np";
+      const title = !p.live ? "away: this will be held and delivered when it's back" : p.channel ? "" : "no push lane: launched without the channel flag";
+      return `<button class="chip${cls}" data-to="@${esc(p.handle)}"${title ? ` title="${title}"` : ""}>@${esc(p.handle)}${p.live ? "" : " · away"}</button>`;
+    })).join("");
   document.querySelectorAll("#toChips .chip").forEach((c) => (c.onclick = () => setTo(c.dataset.to)));
   paintCompose();
   const pushOk = state.push && state.push.subscriptions > 0;
@@ -724,7 +734,8 @@ document.querySelectorAll("#kindSeg button").forEach((b) => (b.onclick = () => s
 async function send() {
   const body = $("#msg").value.trim(); if (!body) { $("#msg").focus(); return toast("nothing to send"); }
   $("#sendBtn").disabled = true;
-  try { await post({ to: compose.to, kind: compose.kind, body }); $("#msg").value = ""; store("orc-draft"); toast(`${compose.kind} sent → ${compose.to}`); }
+  try { await post({ to: compose.to, kind: compose.kind, body }); $("#msg").value = ""; store("orc-draft"); const away = state.presence.find((p) => "@" + p.handle === compose.to && !p.live);
+    toast(away ? `${compose.kind} queued for ${compose.to}: delivered when it\u2019s back` : `${compose.kind} sent → ${compose.to}`); }
   catch (e) { toast("failed: " + e.message); }
   finally { $("#sendBtn").disabled = false; }
 }

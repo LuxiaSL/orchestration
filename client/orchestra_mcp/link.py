@@ -31,6 +31,8 @@ STATE_ROOT = Path(os.environ.get("ORCHESTRA_STATE", Path.home() / ".cache" / "or
 # `hello`, `goodbye` to @all stay on the bus and are read on demand.
 PEER_BROADCAST_PUSH = frozenset({"info", "request"})
 LOCAL_DEFAULT_GRACE = timedelta(seconds=90)
+# More missed messages than this on catch-up become one summary push, not a flood of turns.
+CATCHUP_PUSH_LIMIT = 5
 
 
 class ConfigError(ToolError):
@@ -186,6 +188,7 @@ class Link:
         self.halted: dict | None = None
         self.pushed = 0
         self.usage = UsageTracker()
+        self._beat_lock = asyncio.Lock()  # the usage tracker's file offset must not be read twice at once
         self._http: httpx.AsyncClient | None = None
         self._tasks: list[asyncio.Task] = []
 
@@ -316,10 +319,19 @@ class Link:
 
     async def _stream_once(self) -> None:
         if self.state.cursor is None:
-            # First run for this session: start at the head, history is for `read`.
+            # No local cursor: a fresh session id. If this handle was here before (a restart,
+            # a resume under a new id), pick up where it left off so nothing addressed to it
+            # is skipped; otherwise start at the head (history is for `read`).
             head = (await self.get("/api/events", after=10**12, limit=1))["head"]
-            self.state.cursor = head
-            self.state.read_cursor = max(self.state.read_cursor, head)
+            start = head
+            try:
+                prior = await self.get(f"/api/presence/{self.me.handle}")
+                if isinstance(prior.get("cursor"), int) and prior["cursor"] <= head:
+                    start = prior["cursor"]
+            except ToolError:
+                pass  # never seen: fresh start
+            self.state.cursor = start
+            self.state.read_cursor = max(self.state.read_cursor, start)
             self.state.save()
         async with self.http().stream("GET", "/api/stream", params={"after": self.state.cursor}) as r:
             r.raise_for_status()
@@ -330,9 +342,21 @@ class Link:
                 pass
             self.last_error = None
             await self.flush_spool()
+            asyncio.get_running_loop().create_task(self._beat_once())  # report the cursor promptly
             data: list[str] = []
+            # The stream opens with ": orchestra head=N": events up to N are backlog (what we
+            # missed), and their pushes are held and delivered together once we reach N.
+            backlog_head: int | None = None
+            held: list[dict] = []
             async for line in r.aiter_lines():
-                if line.startswith("data:"):
+                if line.startswith(": orchestra head="):
+                    try:
+                        backlog_head = int(line.split("=", 1)[1].split()[0])
+                    except (ValueError, IndexError):
+                        backlog_head = None
+                    if backlog_head is not None and backlog_head <= (self.state.cursor or 0):
+                        backlog_head = None  # nothing missed
+                elif line.startswith("data:"):
                     data.append(line[5:].lstrip())
                 elif line == "" and data:
                     raw, data = "\n".join(data), []
@@ -340,9 +364,39 @@ class Link:
                         ev = json.loads(raw)
                     except json.JSONDecodeError:
                         continue
-                    await self._on_event(ev)
+                    in_backlog = backlog_head is not None and int(ev.get("seq", 0)) <= backlog_head
+                    await self._on_event(ev, hold=held if in_backlog else None)
+                    if in_backlog and int(ev.get("seq", 0)) >= backlog_head:
+                        await self._deliver_catchup(held)
+                        held, backlog_head = [], None
+                elif line.startswith(":") and backlog_head is not None:
+                    # a ping before the backlog's last event arrived: flush what we have
+                    await self._deliver_catchup(held)
+                    held, backlog_head = [], None
 
-    async def _on_event(self, ev: dict) -> None:
+    async def _deliver_catchup(self, held: list[dict]) -> None:
+        if not held:
+            return
+        if len(held) <= CATCHUP_PUSH_LIMIT:
+            for ev in held:
+                await self._push_event(ev)
+            return
+        lines = [f"- #{e.get('seq')} {e.get('kind')} {e.get('id')} from {e.get('from')}"
+                 + (f" re {e['ref']}" if e.get("ref") else "") + f": {(e.get('body') or '')[:90]}" for e in held]
+        await self._push(
+            f"while you were away, {len(held)} messages for you arrived on the bus:\n" + "\n".join(lines[-15:])
+            + ("\n(older ones omitted)" if len(lines) > 15 else "")
+            + "\nRead them in full with read(); answers to your asks and any HALT/RESUME are among them.",
+            {"source": "orchestra", "kind": "catchup", "count": str(len(held))},
+        )
+
+    async def _push_event(self, ev: dict) -> None:
+        await self._push(render(ev, self.operator), {
+            "source": "orchestra", "kind": str(ev.get("kind")), "from": str(ev.get("from")),
+            "id": str(ev.get("id")), "ref": str(ev.get("ref") or ""), "seq": str(ev.get("seq")),
+        })
+
+    async def _on_event(self, ev: dict, hold: list[dict] | None = None) -> None:
         me = self.me.handle
         self.state.cursor = max(self.state.cursor or 0, int(ev.get("seq", 0)))
         if ev.get("kind") in ("answer", "defaulted", "ack", "withdraw"):
@@ -356,29 +410,37 @@ class Link:
             self.halted = None
         self.state.save()
         if is_for_me(ev, me, self.operator):
-            await self._push(render(ev, self.operator), {
-                "source": "orchestra", "kind": str(ev.get("kind")), "from": str(ev.get("from")),
-                "id": str(ev.get("id")), "ref": str(ev.get("ref") or ""), "seq": str(ev.get("seq")),
+            if hold is not None:
+                hold.append(ev)
+            else:
+                await self._push_event(ev)
+
+    async def _beat_once(self) -> None:
+        async with self._beat_lock:
+            await self._beat_unlocked()
+
+    async def _beat_unlocked(self) -> None:
+        ident = self.me
+        try:
+            usage = await asyncio.to_thread(self.usage.poll, ident.session_id, ident.cwd)
+        except Exception as exc:  # telemetry must never take the heartbeat down
+            print(f"orchestra-mcp: usage read failed ({exc!r})", file=sys.stderr)
+            usage = None
+        try:
+            await self.http().post("/api/presence", json={
+                "handle": ident.handle, "session_id": ident.session_id, "name": ident.name,
+                "cwd": ident.cwd, "status": ident.status, "host": ident.host,
+                "channel": self.notify is not None,
+                **({"usage": usage.wire()} if usage else {}),
+                **({"bridge": ident.bridge} if ident.bridge else {}),
+                **({"cursor": self.state.cursor} if self.state.cursor is not None else {}),
             })
+        except Exception:
+            pass  # the stream loop owns connectivity reporting
 
     async def _heartbeat_forever(self) -> None:
         while True:
-            ident = self.me
-            try:
-                usage = await asyncio.to_thread(self.usage.poll, ident.session_id, ident.cwd)
-            except Exception as exc:  # telemetry must never take the heartbeat down
-                print(f"orchestra-mcp: usage read failed ({exc!r})", file=sys.stderr)
-                usage = None
-            try:
-                await self.http().post("/api/presence", json={
-                    "handle": ident.handle, "session_id": ident.session_id, "name": ident.name,
-                    "cwd": ident.cwd, "status": ident.status, "host": ident.host,
-                    "channel": self.notify is not None,
-                    **({"usage": usage.wire()} if usage else {}),
-                    **({"bridge": ident.bridge} if ident.bridge else {}),
-                })
-            except Exception:
-                pass  # the stream loop owns connectivity reporting
+            await self._beat_once()
             await asyncio.sleep(60)
 
     async def _deadline_watch_forever(self) -> None:

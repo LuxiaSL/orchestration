@@ -175,6 +175,7 @@ class PresenceIn(BaseModel):
     host: str | None = None
     channel: bool = False
     usage: UsageIn | None = None
+    cursor: int | None = Field(default=None, ge=0, description="last bus seq this session has taken in")
     bridge: str | None = Field(default=None, pattern=r"^session_[A-Za-z0-9]{8,64}$",
                                description="Remote Control session id: lets the operator open it in the Claude app")
 

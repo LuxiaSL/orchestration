@@ -23,6 +23,8 @@ from pydantic import ValidationError
 from .models import CLOSING_KINDS, SYSTEM, THREAD_KINDS, Event, PostIn, Presence, PresenceIn, Thread
 
 PRESENCE_STALE_S = 180
+PRESENCE_KEEP_DAYS = 7
+PRESENCE_SAVE_EVERY_S = 15
 
 
 def now() -> datetime:
@@ -30,9 +32,11 @@ def now() -> datetime:
 
 
 class Bus:
-    def __init__(self, path: Path, operator: str = "operator") -> None:
+    def __init__(self, path: Path, operator: str = "operator", presence_path: Path | None = None) -> None:
         self.path = path
         self.operator = operator
+        self.presence_path = presence_path
+        self._presence_saved_at = 0.0
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.events: list[Event] = []
         self.threads: dict[str, Thread] = {}
@@ -42,6 +46,7 @@ class Bus:
         self._subscribers: set[asyncio.Queue[Event]] = set()
         self.on_append: list[Callable[[Event], None]] = []
         self._load()
+        self._load_presence()
 
     # -- replay -------------------------------------------------------------
 
@@ -185,10 +190,53 @@ class Bus:
 
     # -- presence -----------------------------------------------------------
 
+    def _load_presence(self) -> None:
+        if self.presence_path is None or not self.presence_path.exists():
+            return
+        try:
+            rows = json.loads(self.presence_path.read_text())
+            self.presence = {r["handle"]: Presence.model_validate(r) for r in rows}
+        except (OSError, json.JSONDecodeError, ValidationError, KeyError) as exc:
+            print(f"orchestra: presence file unreadable ({exc}); starting empty", file=sys.stderr)
+
+    def save_presence(self, force: bool = False) -> None:
+        """Persist presence so the session list (and each handle's cursor) survives restarts."""
+        if self.presence_path is None:
+            return
+        t = now().timestamp()
+        if not force and t - self._presence_saved_at < PRESENCE_SAVE_EVERY_S:
+            return
+        cutoff = t - PRESENCE_KEEP_DAYS * 86400
+        self.presence = {h: p for h, p in self.presence.items() if p.last_seen.timestamp() >= cutoff}
+        tmp = self.presence_path.with_suffix(".tmp")
+        try:
+            tmp.write_text(json.dumps([p.model_dump(mode="json") for p in self.presence.values()]))
+            tmp.replace(self.presence_path)
+            self._presence_saved_at = t
+        except OSError as exc:
+            print(f"orchestra: presence save failed: {exc}", file=sys.stderr)
+
     def touch(self, p: PresenceIn) -> Presence:
-        pres = Presence(**p.model_dump(), last_seen=now())
+        prev = self.presence.get(p.handle)
+        data = p.model_dump()
+        if data.get("cursor") is None and prev is not None:
+            data["cursor"] = prev.cursor  # an older client that doesn't report it keeps the last known one
+        pres = Presence(**data, last_seen=now())
         self.presence[p.handle] = pres
+        self.save_presence(force=prev is None)
         return pres
+
+    def cursor_for(self, handle: str) -> int | None:
+        p = self.presence.get(handle)
+        return p.cursor if p is not None else None
+
+    def waiting_for(self, handle: str, cursor: int | None) -> int:
+        """Events after `cursor` that would be pushed to `handle` (directed, or the operator's broadcasts)."""
+        if cursor is None:
+            return 0
+        me = "@" + handle
+        return sum(1 for e in self.since(cursor, limit=100_000)
+                   if e.from_ != handle and (e.to == me or (e.to == "@all" and e.from_ == self.operator)))
 
     def live_presence(self, operator_view: bool = False) -> list[dict]:
         cutoff = now().timestamp() - PRESENCE_STALE_S
@@ -197,6 +245,7 @@ class Bus:
             # usage is telemetry and the bridge id opens the session: both are the operator's to see
             d = p.model_dump(mode="json", exclude=None if operator_view else {"usage", "bridge"})
             d["live"] = p.last_seen.timestamp() >= cutoff
+            d["waiting"] = 0 if d["live"] else self.waiting_for(p.handle, p.cursor)
             out.append(d)
         return out
 
