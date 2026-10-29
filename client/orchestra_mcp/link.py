@@ -263,6 +263,9 @@ class Link:
                 "client_id": secrets.token_hex(8), **body}
         try:
             r = await self.http().post("/api/events", json=body)
+            if r.status_code in (502, 503, 504):  # mid-deploy: one patient retry before spooling
+                await asyncio.sleep(3.0)
+                r = await self.http().post("/api/events", json=body)  # client_id makes this idempotent
         except httpx.TransportError as exc:
             self.connected = False
             self.last_error = f"{type(exc).__name__}: {exc}"
@@ -306,10 +309,18 @@ class Link:
         return sent
 
     async def get(self, path: str, **params: Any) -> dict:
-        try:
-            r = await self.http().get(path, params=params)
-        except httpx.TransportError as exc:
-            raise ToolError(f"bus unreachable ({type(exc).__name__}); try again shortly") from exc
+        # A deploy restarts the server for ~3 s (the proxy answers 502 meanwhile): retry through it.
+        for attempt, wait in enumerate((0.0, 1.0, 2.5, 4.0)):
+            if wait:
+                await asyncio.sleep(wait)
+            try:
+                r = await self.http().get(path, params=params)
+            except httpx.TransportError as exc:
+                if attempt == 3:
+                    raise ToolError(f"bus unreachable ({type(exc).__name__}); try again shortly") from exc
+                continue
+            if r.status_code not in (502, 503, 504) or attempt == 3:
+                break
         if r.status_code >= 400:
             try:
                 detail = r.json().get("detail")

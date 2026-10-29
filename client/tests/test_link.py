@@ -106,3 +106,19 @@ def test_mention_hint_and_old_handles(tmp_path, monkeypatch):
     assert lk.my_handles() == {"scout-82", "scout-ops"}
     assert lk._mine({"from": "operator", "to": "@scout-82", "kind": "notice"})
     assert not lk._mine({"from": "scout-82", "to": "@all", "kind": "info"})  # my own old-name posts aren't pushed to me
+
+
+def test_get_retries_through_a_deploy(monkeypatch, tmp_path):
+    import asyncio
+    import httpx
+    from orchestra_mcp import link as L
+    monkeypatch.setattr(L, "STATE_ROOT", tmp_path)
+    calls = {"n": 0}
+    def handler(req):
+        calls["n"] += 1
+        return httpx.Response(502) if calls["n"] < 3 else httpx.Response(200, json={"ok": True})
+    lk = L.Link(L.Config(url="http://bus", token="t"), None)
+    lk._http = httpx.AsyncClient(base_url="http://bus", transport=httpx.MockTransport(handler))
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(L.asyncio, "sleep", lambda s: real_sleep(0))
+    assert asyncio.run(lk.get("/api/state")) == {"ok": True} and calls["n"] == 3

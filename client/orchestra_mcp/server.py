@@ -207,6 +207,7 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         thread: Annotated[str | None, Field(description="A message id: return it and everything that refs it, oldest first.")] = None,
         topic: Annotated[str | None, Field(description="Only events with this topic.")] = None,
         kind: Annotated[str | None, Field(description="Only this kind, e.g. 'info' or 'request'.")] = None,
+        to_me: Annotated[bool, Field(description="Only what's addressed to you, plus the operator's broadcasts (good after a reset).")] = False,
     ) -> dict:
         """Catch up on the bus. One line per event by default (get(id) for a full body); your own posts are left out.
         Without since/thread it continues from your read cursor and advances it."""
@@ -232,7 +233,10 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
             head = d["head"]
             for e in d["events"]:
                 scanned_to = int(e["seq"])
-                if (include_mine or e.get("from") != me) and (topic is None or e.get("topic") == topic) and (kind is None or e.get("kind") == kind):
+                if ((include_mine or e.get("from") != me) and (topic is None or e.get("topic") == topic)
+                        and (kind is None or e.get("kind") == kind)
+                        and (not to_me or e.get("to") in {f"@{h}" for h in link.my_handles()}
+                             or (e.get("to") == "@all" and e.get("from") == link.operator))):
                     out.append(e)
                     if len(out) >= limit:
                         break
