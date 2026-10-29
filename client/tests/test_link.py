@@ -28,11 +28,11 @@ def test_identity_walks_parent_chain(tmp_path: Path, monkeypatch):
     # Our own parent chain includes this pytest's parent; plant a session file for it.
     ppid = os.getppid()
     (tmp_path / f"{ppid}.json").write_text(json.dumps(
-        {"pid": ppid, "sessionId": "s-1", "cwd": "/x", "name": "Steering and Serving", "status": "busy"}))
+        {"pid": ppid, "sessionId": "s-1", "cwd": "/x", "name": "Route Planning Service", "status": "busy"}))
     monkeypatch.setattr(identity, "SESSIONS_DIR", tmp_path)
     monkeypatch.delenv("ORCHESTRA_HANDLE", raising=False)
     me = identity.whoami()
-    assert me.handle == "steering-and-serving" and me.session_id == "s-1" and me.source == "session-registry"
+    assert me.handle == "route-planning-service" and me.session_id == "s-1" and me.source == "session-registry"
 
 
 def test_identity_finds_real_session():
@@ -99,10 +99,10 @@ def test_mention_hint_and_old_handles(tmp_path, monkeypatch):
     assert "n3a2e52, m4958c9" in h and "r222222" not in h
     assert L.mention_hint({"body": "no ids here, just 'abcdefg'"}) == ""
     monkeypatch.setattr(L, "STATE_ROOT", tmp_path)
-    monkeypatch.setenv("ORCHESTRA_HANDLE", "heimdall-82")
+    monkeypatch.setenv("ORCHESTRA_HANDLE", "scout-82")
     lk = L.Link(None, None)
-    assert lk.my_handles() == {"heimdall-82"}
-    monkeypatch.setenv("ORCHESTRA_HANDLE", "heimdall-ops")
-    assert lk.my_handles() == {"heimdall-82", "heimdall-ops"}
-    assert lk._mine({"from": "luxia", "to": "@heimdall-82", "kind": "notice"})
-    assert not lk._mine({"from": "heimdall-82", "to": "@all", "kind": "info"})  # my own old-name posts aren't pushed to me
+    assert lk.my_handles() == {"scout-82"}
+    monkeypatch.setenv("ORCHESTRA_HANDLE", "scout-ops")
+    assert lk.my_handles() == {"scout-82", "scout-ops"}
+    assert lk._mine({"from": "operator", "to": "@scout-82", "kind": "notice"})
+    assert not lk._mine({"from": "scout-82", "to": "@all", "kind": "info"})  # my own old-name posts aren't pushed to me

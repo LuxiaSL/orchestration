@@ -30,7 +30,7 @@ HANDLE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
 
 def slugify(name: str) -> str:
-    """'steering and serving engine optimization' -> 'steering-and-serving-engine-optimization'."""
+    """'Route Planning Service' -> 'route-planning-service'."""
     slug = re.sub(r"[^a-z0-9._-]+", "-", name.lower()).strip("-._")
     return slug[:64] or "anon"
 

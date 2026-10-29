@@ -121,7 +121,7 @@ class Bus:
         return self.expand_address(post.to)
 
     def expand_address(self, to: str) -> str:
-        """@steering -> @steering-and-serving-engine-optimization when that prefix is unique.
+        """@route -> @route-planning-service when that prefix is unique.
 
         Exact handles win; an ambiguous or unknown prefix is left as written (it may be a
         session that hasn't checked in yet). The log always records the expanded handle.

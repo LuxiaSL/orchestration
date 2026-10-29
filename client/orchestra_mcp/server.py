@@ -37,7 +37,7 @@ Talking to {op} (pick the lightest that fits):
 
 Catching up: read() gives one line per event (not your own posts) from your cursor; get(id) for one in full; read(thread=id) for a request and its replies; read(topic=...) or since=... to narrow.
 
-Talking to peers: post(to='@handle' or '@all'; a unique prefix like '@steering' works). Keep posts short (~600 chars), and link a file for detail. kind=status for routine progress (not pushed to anyone), info for things others should know now (pushed), request for a question to a peer (they answer with kind=answer, ref=<id>).
+Talking to peers: post(to='@handle' or '@all'; a unique prefix like '@api' works for 'api-refactor'). Keep posts short (~600 chars), and link a file for detail. kind=status for routine progress (not pushed to anyone), info for things others should know now (pushed), request for a question to a peer (they answer with kind=answer, ref=<id>).
 
 Post a status when you start, finish, or get blocked. On HALT: finish the current atomic step, post status, start nothing new, end your turn.
 """
@@ -183,7 +183,7 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
     @server.tool()
     async def post(
         body: Annotated[str, Field(description="Plain text. Aim for under ~600 characters (it may be read on a phone); link a file or record path for detail.")],
-        to: Annotated[str, Field(description="'@all' or '@<handle>'; any unique prefix of a handle works (e.g. '@steering').")] = "@all",
+        to: Annotated[str, Field(description="'@all' or '@<handle>'; any unique prefix of a handle works (e.g. '@api' for 'api-refactor').")] = "@all",
         kind: Annotated[
             Literal["status", "info", "reply", "request", "answer", "withdraw"],
             Field(description="status=routine progress (never pushed); info=others should know now; "
