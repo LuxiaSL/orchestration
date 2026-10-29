@@ -438,3 +438,13 @@ def test_files_for_the_operator_live_until_a_day_after_closing(client):
     fs.sweep()
     assert fs.recs[o["sha256"]].why_deleted == "never attached to a message"
     assert up("big.bin", b"x" * (F.MAX_FILE + 1), "application/octet-stream").status_code == 413
+
+
+def test_handoffs_follow_a_rename(client):
+    client.post("/api/presence", headers=AGENT, json={"handle": "scout-79", "session_id": "sid-r", "channel": True})
+    client.post("/api/handoffs", headers=AGENT, json={"handle": "scout-79", "written_at": "2026-10-29T05:00:00Z", "why": "x", "text": "## Where we are\nold name"})
+    client.post("/api/presence", headers=AGENT, json={"handle": "scout-67", "session_id": "sid-r", "channel": True})  # restarted under a new name
+    p = next(x for x in client.get("/api/state", headers=OP).json()["presence"] if x["handle"] == "scout-67")
+    assert p["handoff_at"] and p["handoff_at"].startswith("2026-10-29T05:00")
+    notes = client.get("/api/handoffs/scout-67", headers=OP).json()["notes"]
+    assert [n["text"] for n in notes] == ["## Where we are\nold name"]

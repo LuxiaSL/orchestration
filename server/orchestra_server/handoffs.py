@@ -58,6 +58,14 @@ class Handoffs:
             print(f"orchestra: handoffs save failed: {exc}", file=sys.stderr)
         return len(self.by_handle[h.handle])
 
-    def latest_at(self, handle: str) -> str | None:
-        notes = self.by_handle.get(handle)
+    def notes_for(self, handles: list[str]) -> list[HandoffIn]:
+        """A session's notes under all its names (a rename, e.g. after a restart, keeps its earlier notes), oldest first."""
+        seen: dict[datetime, HandoffIn] = {}
+        for h in handles:
+            for n in self.by_handle.get(h, []):
+                seen.setdefault(n.written_at, n)
+        return sorted(seen.values(), key=lambda n: n.written_at)[-KEEP:]
+
+    def latest_at(self, handles: list[str]) -> str | None:
+        notes = self.notes_for(handles)
         return notes[-1].written_at.isoformat() if notes else None

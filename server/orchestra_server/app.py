@@ -262,7 +262,7 @@ def create_app(settings: Settings) -> FastAPI:
         return {
             "head": bus.head, "you": who, "operator": settings.operator, "client_build": settings.client_build,
             "inbox": {k: files.decorate(v) for k, v in bus.inbox().items()},
-            "presence": [({**p, "handoff_at": handoffs.latest_at(p["handle"])} if who == "operator" else p)
+            "presence": [({**p, "handoff_at": handoffs.latest_at([p["handle"], *p.get("renamed_from", [])])} if who == "operator" else p)
                          for p in bus.live_presence(operator_view=(who == "operator"))],
             "push": {"public_key": pusher.public_key, "subscriptions": len(pusher.subs)} if who == "operator" else None,
         }
@@ -293,7 +293,8 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/api/handoffs/{handle}")
     async def get_handoffs(handle: str, _: Principal = Depends(operator_only)) -> dict:
-        notes = handoffs.by_handle.get(handle, [])
+        p = bus.presence.get(handle)
+        notes = handoffs.notes_for([handle, *(p.renamed_from if p else [])])
         return {"handle": handle, "notes": [n.model_dump(mode="json") for n in reversed(notes)]}
 
     @app.post("/api/files")
