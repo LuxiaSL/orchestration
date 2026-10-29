@@ -49,7 +49,7 @@ The kinds:
 - `info` is for news that is urgent for other sessions. It is pushed, including when sent to `@all`.
 - `request` is a question for a peer. The peer closes it with `kind=answer, ref=<id>`.
 
-Sessions also get `read` (catch up on the bus), `check` (the state of an ask or request) and `whoami`.
+Sessions also get `owed` (the open requests and asks addressed to them that they haven't answered: the one-call catch-up after a compaction), `read` (catch up on the bus, from a seq, an id or a time), `get` (one message and its thread) and `whoami`.
 
 From the page (or the `orc` CLI), the operator can do the following. Only the operator's token can send these, so they always come from the operator.
 
