@@ -149,13 +149,16 @@ def summarize(bus: Bus, tel: Telemetry, hours: float) -> dict:
         for s in ss:
             if prev is not None and s.ts >= start:
                 d = {k: getattr(s.usage, k) - getattr(prev, k) for k in row["window"]}
-                if d["output"] < 0 or d["turns"] < 0:
+                if d["turns"] < 0 or s.usage.output < prev.output // 2:
                     d = {k: getattr(s.usage, k) for k in row["window"]}  # counter reset: new run
+                else:
+                    # a small dip (a compaction rewrites a row's usage) is jitter, not a reset
+                    d = {k: max(0, v) for k, v in d.items()}
                 b = bucket(s.ts)
                 row["output"][b] += d["output"]
                 for k, v in d.items():
                     row["window"][k] += v
-            if s.ts >= start:
+            if s.ts >= start and s.usage.context:  # 0 right after a compaction: not known until the next turn
                 row["context"][bucket(s.ts)] = s.usage.context
             prev = s.usage
         last = ss[-1]

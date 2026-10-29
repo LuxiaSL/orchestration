@@ -241,6 +241,8 @@ def test_telemetry_usage_and_volume(client):
     beat("atlas", "s1", 100, 1000, 2)
     beat("atlas", "s1", 100, 1000, 2)   # unchanged: not recorded
     beat("atlas", "s1", 350, 1800, 5)
+    beat("atlas", "s1", 345, 0, 5)      # a compaction's small dip: jitter, counts nothing (and context 0 is unknown)
+    beat("atlas", "s1", 400, 900, 6)    # +55 from the dipped value
     beat("atlas", "s1", 40, 300, 1)     # reset (new run): counts as 40, never negative
     beat("hermes", "s2", 10, 50, 1)
     client.post("/api/events", headers=AGENT, json={"from": "atlas", "to": "@hermes", "kind": "info", "body": "hi"})
@@ -252,7 +254,7 @@ def test_telemetry_usage_and_volume(client):
     assert t["totals"]["messages"] == 4 and t["totals"]["to_operator"] == 1
     assert {"from": "atlas", "to": "@hermes", "count": 2} in t["edges"]
     atlas = next(s for s in t["sessions"] if s["handle"] == "atlas")
-    assert atlas["window"]["output"] == 250 + 40 and atlas["latest"]["context"] == 300
+    assert atlas["window"]["output"] == 250 + 55 + 40 and 0 not in atlas["context"] and atlas["latest"]["context"] == 300
     assert t["latency"]["request"]["n"] == 1
     assert sum(b["total"] for b in t["volume"]) == 4
 
