@@ -231,3 +231,27 @@ def test_options_multi_and_default(client):
     # options only where they belong
     assert client.post("/api/events", headers=AGENT, json={"from": "atlas", "to": "@ada", "kind": "note", "body": "x",
                                                           "options": [{"label": "a"}, {"label": "b"}]}).status_code == 422
+
+
+def test_telemetry_usage_and_volume(client):
+    def beat(h, sid, out, ctx, turns):
+        r = client.post("/api/presence", headers=AGENT, json={"handle": h, "session_id": sid, "channel": True,
+            "usage": {"output": out, "context": ctx, "turns": turns, "input": 1, "model": "claude-opus-5-5"}})
+        assert r.status_code == 200
+    beat("atlas", "s1", 100, 1000, 2)
+    beat("atlas", "s1", 100, 1000, 2)   # unchanged: not recorded
+    beat("atlas", "s1", 350, 1800, 5)
+    beat("atlas", "s1", 40, 300, 1)     # reset (new run): counts as 40, never negative
+    beat("hermes", "s2", 10, 50, 1)
+    client.post("/api/events", headers=AGENT, json={"from": "atlas", "to": "@hermes", "kind": "info", "body": "hi"})
+    client.post("/api/events", headers=AGENT, json={"from": "atlas", "to": "@hermes", "kind": "info", "body": "again"})
+    req = client.post("/api/events", headers=AGENT, json={"from": "hermes", "to": "@ada", "kind": "request", "body": "?"}).json()
+    client.post("/api/events", headers=OP, json={"from": "ada", "kind": "answer", "ref": req["id"], "body": "yes"})
+    assert client.get("/api/telemetry", headers=AGENT).status_code == 403
+    t = client.get("/api/telemetry", params={"hours": 1}, headers=OP).json()
+    assert t["totals"]["messages"] == 4 and t["totals"]["to_operator"] == 1
+    assert {"from": "atlas", "to": "@hermes", "count": 2} in t["edges"]
+    atlas = next(s for s in t["sessions"] if s["handle"] == "atlas")
+    assert atlas["window"]["output"] == 250 + 40 and atlas["latest"]["context"] == 300
+    assert t["latency"]["request"]["n"] == 1
+    assert sum(b["total"] for b in t["volume"]) == 4

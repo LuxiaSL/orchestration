@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from .bus import Bus, now
 from .models import AGENT_KINDS, CLOSING_KINDS, HANDLE_RE, OPERATOR_KINDS, SYSTEM, LoginIn, PostIn, PresenceIn, PushSubscription
 from .push import Pusher
+from .telemetry import Telemetry, Usage, summarize
 
 STATIC = Path(__file__).parent / "static"
 COOKIE = "orc"
@@ -75,6 +76,7 @@ def create_app(settings: Settings) -> FastAPI:
     pusher = Pusher(settings.data_dir, digest_delay_s=settings.digest_delay_s,
                     operator=settings.operator, vapid_sub=settings.vapid_sub)
     bus.on_append.append(pusher.on_event)
+    tel = Telemetry(settings.data_dir / "telemetry.jsonl")
 
     async def sweeper() -> None:
         while True:
@@ -242,7 +244,13 @@ def create_app(settings: Settings) -> FastAPI:
         if who != "agent":
             raise HTTPException(403, "presence is for sessions")
         bus.touch(p)
+        if p.usage is not None:
+            tel.record(p.handle, p.session_id, Usage.model_validate(p.usage.model_dump()))
         return {"ok": True, "head": bus.head}
+
+    @app.get("/api/telemetry")
+    async def telemetry(hours: float = 24, _: Principal = Depends(operator_only)) -> dict:
+        return summarize(bus, tel, min(max(hours, 0.25), 24 * 7))
 
     # -- push ---------------------------------------------------------------
 
@@ -271,6 +279,10 @@ def create_app(settings: Settings) -> FastAPI:
     async def sw() -> FileResponse:
         return FileResponse(STATIC / "sw.js", media_type="text/javascript",
                             headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
+
+    @app.get("/telemetry.js")
+    async def telemetry_js() -> FileResponse:
+        return FileResponse(STATIC / "telemetry.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
     @app.get("/manifest.webmanifest")
     async def manifest() -> FileResponse:

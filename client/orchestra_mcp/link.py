@@ -22,6 +22,7 @@ import httpx
 from mcp.server.mcpserver.exceptions import ToolError
 
 from .identity import Identity, whoami
+from .usage import UsageTracker
 
 CONFIG_PATH = Path(os.environ.get("ORCHESTRA_CONFIG", Path.home() / ".config" / "orchestra" / "config.json"))
 STATE_ROOT = Path(os.environ.get("ORCHESTRA_STATE", Path.home() / ".cache" / "orchestra"))
@@ -184,6 +185,7 @@ class Link:
         self.last_error: str | None = None
         self.halted: dict | None = None
         self.pushed = 0
+        self.usage = UsageTracker()
         self._http: httpx.AsyncClient | None = None
         self._tasks: list[asyncio.Task] = []
 
@@ -363,10 +365,16 @@ class Link:
         while True:
             ident = self.me
             try:
+                usage = await asyncio.to_thread(self.usage.poll, ident.session_id, ident.cwd)
+            except Exception as exc:  # telemetry must never take the heartbeat down
+                print(f"orchestra-mcp: usage read failed ({exc!r})", file=sys.stderr)
+                usage = None
+            try:
                 await self.http().post("/api/presence", json={
                     "handle": ident.handle, "session_id": ident.session_id, "name": ident.name,
                     "cwd": ident.cwd, "status": ident.status, "host": ident.host,
                     "channel": self.notify is not None,
+                    **({"usage": usage.wire()} if usage else {}),
                 })
             except Exception:
                 pass  # the stream loop owns connectivity reporting

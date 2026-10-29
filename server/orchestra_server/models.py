@@ -154,6 +154,18 @@ class Thread(BaseModel):
         return self.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
+class UsageIn(BaseModel):
+    input: int = 0
+    output: int = 0
+    cache_read: int = 0
+    cache_write: int = 0
+    thinking: int = 0
+    turns: int = 0
+    context: int = 0
+    model: str | None = Field(default=None, max_length=80)
+    last_ts: str | None = Field(default=None, max_length=40)
+
+
 class PresenceIn(BaseModel):
     handle: str
     session_id: str | None = None
@@ -162,6 +174,7 @@ class PresenceIn(BaseModel):
     status: str | None = None
     host: str | None = None
     channel: bool = False
+    usage: UsageIn | None = None
 
     @field_validator("handle")
     @classmethod
