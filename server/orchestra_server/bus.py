@@ -42,6 +42,7 @@ class Bus:
         self.threads: dict[str, Thread] = {}
         self.presence: dict[str, Presence] = {}
         self._by_client_id: dict[str, Event] = {}
+        self._answer_thread: dict[str, str] = {}  # an answer/reply's id -> the thread it sits in
         self._lock = asyncio.Lock()
         self._subscribers: set[asyncio.Queue[Event]] = set()
         self.on_append: list[Callable[[Event], None]] = []
@@ -88,21 +89,28 @@ class Bus:
             )
         elif ev.kind in CLOSING_KINDS and ev.ref in self.threads:
             t = self.threads[ev.ref]
-            if is_group(t.to) and ev.kind == "answer" and ev.from_ != t.from_:
-                # A broadcast request collects one answer per session; only its opener closes it.
+            if is_group(t.to) and ev.kind == "answer" and ev.from_ not in (t.from_, self.operator):
+                # A broadcast request collects one answer per session; only its opener (or the operator) closes it.
                 t.answers.append({"from": ev.from_, "body": ev.body, "ts": ev.ts.isoformat(), "id": ev.id, "kind": "answer"})
+                self._answer_thread[ev.id] = t.id
                 return
+            if is_group(t.to) and ev.kind == "answer" and ev.from_ == self.operator and ev.from_ != t.from_:
+                t.answers.append({"from": ev.from_, "body": ev.body, "ts": ev.ts.isoformat(), "id": ev.id, "kind": "answer"})
             if t.status == "open":
                 t.status = {"answer": "answered", "ack": "acked", "defaulted": "defaulted", "withdraw": "withdrawn"}[ev.kind]  # type: ignore[assignment]
                 t.resolution = ev.body or (t.default if ev.kind == "defaulted" else None)
                 t.choice = ev.choice if ev.kind == "answer" else ([t.default] if ev.kind == "defaulted" and t.options else None)
                 t.resolved_at = ev.ts
                 t.resolved_by = ev.from_
-        elif ev.kind == "reply" and ev.ref in self.threads:
+        elif ev.kind == "reply" and (ev.ref in self.threads or ev.ref in self._answer_thread):
             # Replies are comments, not resolutions, but they belong with the thread they answer
-            # (a broadcast's responses, or a back-and-forth asking for more info).
-            self.threads[ev.ref].answers.append(
-                {"from": ev.from_, "body": ev.body, "ts": ev.ts.isoformat(), "id": ev.id, "kind": "reply"})
+            # (a broadcast's responses, or a back-and-forth asking for more info). A reply to one
+            # of a thread's answers sits in that thread too, marked with what it replies to.
+            tid = ev.ref if ev.ref in self.threads else self._answer_thread[ev.ref]  # type: ignore[index]
+            self.threads[tid].answers.append(
+                {"from": ev.from_, "body": ev.body, "ts": ev.ts.isoformat(), "id": ev.id, "kind": "reply",
+                 **({"re": ev.ref} if ev.ref != tid else {})})
+            self._answer_thread[ev.id] = tid
 
     # -- write --------------------------------------------------------------
 
@@ -200,7 +208,11 @@ class Bus:
         if not q:
             return []
         ql = q.lower().lstrip("#")
+        if not ql:
+            return []
         exact = [e for e in self.events if e.id == ql or e.ref == ql]
+        if not exact and len(ql) >= 3 and ql[0] in "amnr" and all(c in "0123456789abcdef" for c in ql[1:]):
+            exact = [e for e in self.events if e.id.startswith(ql)]  # an id prefix, as typed from a glance
         if exact:
             return exact[-limit:][::-1]
         handle = ql[1:] if ql.startswith("@") else None

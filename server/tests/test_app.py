@@ -375,3 +375,22 @@ def test_handoffs_operator_only_and_bounded(client):
     assert p["handoff_at"].startswith("2026-10-29T04:06")
     assert "handoff_at" not in client.get("/api/state", headers=AGENT).json()["presence"][0]
     assert client.post("/api/handoffs", headers=OP, json={"handle": "trainer", "written_at": "2026-10-29T05:00:00Z", "text": "x"}).status_code == 403
+
+
+def test_operator_closes_group_request_and_replies_to_answers_stay_put(client):
+    both = client.post("/api/events", headers=AGENT, json={"from": "trainer", "to": "@ada,@cartographer", "kind": "request", "body": "both?"}).json()
+    client.post("/api/events", headers=AGENT, json={"from": "cartographer", "kind": "answer", "ref": both["id"], "body": "map says yes"})
+    client.post("/api/events", headers=OP, json={"from": "ada", "kind": "answer", "ref": both["id"], "body": "go"})
+    t = client.get(f"/api/threads/{both['id']}", headers=OP).json()
+    assert t["status"] == "answered" and t["resolution"] == "go" and [a["from"] for a in t["answers"]] == ["cartographer", "ada"]
+    assert both["id"] not in [x["id"] for x in client.get("/api/state", headers=OP).json()["inbox"]["open"]]
+    # the operator's reply to one session's answer to their broadcast sits in that thread
+    mine = client.post("/api/events", headers=OP, json={"from": "ada", "to": "@all", "kind": "request", "body": "who's free?"}).json()
+    ans = client.post("/api/events", headers=AGENT, json={"from": "trainer", "kind": "answer", "ref": mine["id"], "body": "me"}).json()
+    client.post("/api/events", headers=OP, json={"from": "ada", "to": "@trainer", "kind": "reply", "ref": ans["id"], "body": "take the eval"})
+    t = client.get(f"/api/threads/{mine['id']}", headers=OP).json()
+    assert [(a["from"], a.get("re")) for a in t["answers"]] == [("trainer", None), ("ada", ans["id"])]
+    # search: a bare '#' finds nothing; an id prefix finds the thread
+    assert client.get("/api/search", params={"q": "#"}, headers=OP).json()["events"] == []
+    hits = client.get("/api/search", params={"q": mine["id"][:4]}, headers=OP).json()["events"]
+    assert mine["id"] in [e["id"] for e in hits]

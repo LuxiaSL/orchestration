@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>orchestra</title>
 <meta name="theme-color" content="#0b0c0e" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
@@ -13,9 +13,11 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400&display=swap">
 <style>
 /* Grayscale typewriter. Hierarchy comes from weight, inversion, rules and hatching, not hue.
-   A deployment can restyle via /brand.css (loaded last): override --f-body / --f-display, add @font-face. */
+   A deployment can restyle via /brand.css (loaded last): override --f-body / --f-display, add @font-face.
+   Layout: an app shell. Header, then three ruled columns (roster | bus + composer | inbox), each its own
+   scroll, so nothing is ever reached by scrolling something else. Phones get the same panes as tabs. */
 :root {
-  --bg: #ffffff; --surface: #ffffff; --surface2: #f3f4f6; --fg: #0b0c0e; --muted: #5a626d; --faint: #8b939d;
+  --bg: #ffffff; --surface: #ffffff; --surface2: #f3f4f6; --fg: #0b0c0e; --muted: #5a626d; --faint: #6f7781;
   --line: #d5d9de; --rule: #0b0c0e; --hatch: #c9ced5; --chip: #f3f4f6; --shadow: 0 10px 40px rgba(11,12,14,.14);
   --f-body: "Courier Prime", "Courier New", ui-monospace, monospace;
   --f-display: var(--f-body);
@@ -23,18 +25,18 @@
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg: #0b0c0e; --surface: #0b0c0e; --surface2: #15181c; --fg: #f2f3f5; --muted: #9aa3ad; --faint: #6b737e;
+  --bg: #0b0c0e; --surface: #0b0c0e; --surface2: #15181c; --fg: #f2f3f5; --muted: #9aa3ad; --faint: #7d8590;
   --line: #2b3038; --rule: #f2f3f5; --hatch: #39404a; --chip: #15181c; --shadow: 0 10px 40px rgba(0,0,0,.6);
   color-scheme: dark } }
 :root[data-theme="dark"] {
-  --bg: #0b0c0e; --surface: #0b0c0e; --surface2: #15181c; --fg: #f2f3f5; --muted: #9aa3ad; --faint: #6b737e;
+  --bg: #0b0c0e; --surface: #0b0c0e; --surface2: #15181c; --fg: #f2f3f5; --muted: #9aa3ad; --faint: #7d8590;
   --line: #2b3038; --rule: #f2f3f5; --hatch: #39404a; --chip: #15181c; --shadow: 0 10px 40px rgba(0,0,0,.6);
   color-scheme: dark }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; }
-body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 15px; line-height: 1.5; min-height: 100vh; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 15px; line-height: 1.5; }
 button, textarea, select, input { font: inherit; color: inherit; }
 a { color: var(--fg); text-decoration-thickness: 1px; text-underline-offset: 2px; }
 ::selection { background: var(--fg); color: var(--bg); }
@@ -53,70 +55,148 @@ textarea, input[type=password] {
 }
 textarea:focus, input:focus { border-color: var(--fg); outline: none; }
 .lbl { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.spacer { flex: 1; }
 
-/* ---- header ---- */
+/* ---- shell ---- */
+#app { height: 100vh; height: 100dvh; display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
 header.top {
-  position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(6px);
-  border-bottom: 1px solid var(--rule);
-  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 18px; min-width: 0;
   padding: calc(10px + env(safe-area-inset-top, 0px)) max(var(--gutter), env(safe-area-inset-right, 0px)) 10px max(var(--gutter), env(safe-area-inset-left, 0px));
 }
 .wordmark { font-family: var(--f-display); font-weight: 700; font-size: 22px; letter-spacing: .01em; margin: 0; }
-.eyebrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-.dot { width: 8px; height: 8px; border: 1px solid var(--fg); display: inline-block; border-radius: 50%; }
+.eyebrow { display: flex; gap: 10px; align-items: center; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; min-width: 0; }
+.dot { width: 8px; height: 8px; border: 1px solid var(--fg); display: inline-block; border-radius: 50%; flex: none; }
 .dot.on { background: var(--fg); }
-.spacer { flex: 1; }
 
-nav.tabs { display: none; border-bottom: 1px solid var(--line); padding: 0 var(--gutter); }
-nav.tabs button { flex: 1; background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 4px; cursor: pointer; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; font-size: 13px; }
+nav.tabs { display: none; border-bottom: 1px solid var(--line); padding: 0 calc(var(--gutter) - 4px); }
+nav.tabs button { flex: 1; background: none; border: 0; border-bottom: 2px solid transparent; padding: 11px 4px; cursor: pointer; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; font-size: 13px; min-height: 44px; }
 nav.tabs button.active { color: var(--fg); border-bottom-color: var(--fg); font-weight: 700; }
 
-main {
-  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) 380px; gap: 28px;
-  padding: 22px max(var(--gutter), env(safe-area-inset-right, 0px)) 72px max(var(--gutter), env(safe-area-inset-left, 0px));
-  max-width: 1680px; margin: 0 auto;
-}
-main > section, main > aside { min-width: 0; }
+main { display: grid; grid-template-columns: clamp(210px, 16vw, 264px) minmax(0, 1.35fr) minmax(0, 1fr); min-height: 0; max-width: 1920px; width: 100%; margin: 0 auto; }
+.pane { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 18px 20px 40px; }
+.pane + .pane { border-left: 1px solid var(--line); }
 .sec-h { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--rule); }
 .sec-h h2 { font-family: var(--f-display); font-size: 15px; letter-spacing: .14em; text-transform: uppercase; margin: 0; }
-.sec-h .n { font-size: 13px; color: var(--muted); }
-.sec-h .tools { margin-left: auto; display: flex; gap: 12px; font-size: 12.5px; color: var(--muted); }
-.sec-h .tools label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
+.sec-h .n { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.sec-h .tools { margin-left: auto; display: flex; gap: 12px; font-size: 12.5px; color: var(--muted); align-items: center; }
+.sec-h .tools label { display: flex; gap: 5px; align-items: center; cursor: pointer; white-space: nowrap; }
 .sec-h .tools input { accent-color: var(--fg); }
 .empty { color: var(--faint); padding: 26px 12px; text-align: center; border: 1px dashed var(--line); }
 
+/* ---- roster: the sessions are the address book ---- */
+#roster { display: flex; flex-direction: column; padding-left: max(var(--gutter), env(safe-area-inset-left, 0px)); padding-right: 14px; }
+#roster .list { flex: 1; }
+.who { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; column-gap: 6px; align-items: baseline; width: 100%; text-align: left;
+  background: transparent; border: 0; border-bottom: 1px solid var(--line); padding: 7px 6px; cursor: pointer; color: var(--fg); }
+.who:hover { background: var(--surface2); }
+.who .g { font-size: 13px; line-height: 1; text-align: center; }
+.who .nm { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who .sub { grid-column: 2 / -1; display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); min-width: 0; white-space: nowrap; overflow: hidden; }
+.who .sub .s { overflow: hidden; text-overflow: ellipsis; }
+.who .meter { flex: none; width: 44px; height: 4px; border: 1px solid var(--muted); position: relative; }
+.who .meter i { position: absolute; inset: 0 auto 0 0; background: var(--muted); }
+.who .meter.hot { border-color: var(--fg); } .who .meter.hot i { background: var(--fg); }
+.who .acts { display: flex; gap: 4px; }
+.who .act { font-size: 12px; color: var(--muted); border: 1px solid var(--line); padding: 0 5px; background: var(--surface); cursor: pointer; text-decoration: none; white-space: nowrap; line-height: 1.5; }
+.who .act:hover { color: var(--fg); border-color: var(--fg); }
+.who .stale { border: 1px dashed var(--fg); color: var(--fg); padding: 0 4px; }
+.who.off .nm { font-weight: 400; color: var(--muted); }
+.who.all { border-bottom: 1px solid var(--rule); margin-bottom: 4px; }
+.who.all .nm { letter-spacing: .06em; }
+/* selected: inverted, like a key held down */
+.who[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.who[aria-pressed="true"] .sub, .who[aria-pressed="true"] .nm { color: var(--bg); }
+.who[aria-pressed="true"] .meter { border-color: var(--bg); } .who[aria-pressed="true"] .meter i { background: var(--bg); }
+.who[aria-pressed="true"] .act { background: var(--fg); color: var(--bg); border-color: var(--bg); }
+.rgroup { font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin: 14px 6px 2px; }
+.rfoot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+.rfoot .two { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.rfoot .two .btn { font-size: 13px; padding: 6px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rfoot .meta { display: flex; flex-wrap: wrap; gap: 0 4px; font-size: 12.5px; }
+.rfoot .meta .btn { padding: 4px 6px; }
+#writeBtn { display: none; }
+
+/* ---- bus + composer ---- */
+#feed { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+#feed .scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -8px; padding: 0 8px; }
+.search { display: flex; gap: 8px; margin: 0 0 8px; }
+.search input { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 2px; padding: 7px 10px; }
+.search input:focus { border-color: var(--fg); outline: none; }
+.searchnote { font-size: 12.5px; color: var(--muted); margin: 0 0 8px; display: flex; gap: 10px; align-items: baseline; }
+.ev { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--line); font-size: 14px; cursor: pointer; }
+.ev:hover { background: var(--surface2); }
+.ev .ts { color: var(--faint); font-variant-numeric: tabular-nums; font-size: 12.5px; padding-top: 1px; white-space: nowrap; }
+.ev .head { color: var(--muted); font-size: 13px; display: flex; gap: 4px 8px; flex-wrap: wrap; align-items: baseline; min-width: 0; }
+.ev .head .nm { color: var(--fg); font-weight: 700; cursor: pointer; }
+.ev .head .nm:hover { text-decoration: underline; }
+.ev .head .rcpt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.ev .k { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; border: 1px solid var(--line); padding: 0 5px; }
+.ev .txt { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; overflow: hidden; }
+.ev.open .txt { display: block; -webkit-line-clamp: unset; }
+.ev .more { display: none; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.ev.long .more { display: inline-block; } .ev.open .more { display: inline-block; }
+.ev.status .txt { color: var(--muted); }
+.ev.op .head .nm { text-decoration: underline; text-underline-offset: 3px; }
+.ev.ask, .ev.halt { border-left: 6px solid transparent; border-image: repeating-linear-gradient(135deg, var(--fg) 0 2px, transparent 2px 5px) 6; }
+.earlier { display: block; margin: 12px auto 16px; }
+.idlink { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.idlink:hover { color: var(--fg); }
+.mini { background: transparent; border: 1px solid var(--line); color: var(--muted); padding: 2px 8px; font-size: 12.5px; cursor: pointer; border-radius: 2px; }
+.mini:hover { border-color: var(--fg); color: var(--fg); }
+
+.composer { flex: none; border-top: 2px solid var(--rule); margin: 0 -20px; padding: 10px 20px calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--surface); }
+.crow { display: flex; gap: 10px; align-items: center; min-width: 0; margin-bottom: 8px; }
+.toline { flex: 1; min-width: 0; display: flex; gap: 6px; align-items: center; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+.toline::-webkit-scrollbar { display: none; }
+.tochip { font-size: 13px; border: 1px solid var(--fg); padding: 1px 4px 1px 9px; display: inline-flex; gap: 4px; align-items: center; background: var(--fg); color: var(--bg); font-weight: 700; max-width: 16ch; }
+.tochip span { overflow: hidden; text-overflow: ellipsis; }
+.tochip button { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 4px; font-weight: 400; }
+.tochip.all { padding-right: 9px; letter-spacing: .06em; }
+.tohint { font-size: 12px; color: var(--faint); }
+.seg { display: grid; grid-template-columns: repeat(3, auto); border: 1px solid var(--fg); flex: none; }
+.seg button { background: transparent; border: 0; border-left: 1px solid var(--fg); padding: 4px 10px; cursor: pointer; font-size: 13px; }
+.seg button:first-child { border-left: 0; }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 700; }
+#msg { min-height: 64px; max-height: 40vh; font-size: 15.5px; line-height: 1.5; resize: none; display: block; }
+.srow { display: flex; gap: 10px; align-items: center; margin-top: 8px; min-width: 0; }
+.kindhint { font-size: 12.5px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.kbd { font-size: 12px; color: var(--faint); white-space: nowrap; }
+#sendBtn { flex: none; padding: 9px 16px; letter-spacing: .06em; text-transform: uppercase; display: flex; gap: 10px; align-items: baseline; max-width: 60%; }
+#sendBtn .to { font-weight: 400; text-transform: none; letter-spacing: 0; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
 /* ---- inbox: form carries urgency ---- */
+#inbox { padding-right: max(var(--gutter), env(safe-area-inset-right, 0px)); }
 .card { border: 1px solid var(--line); padding: 14px 16px; margin-bottom: 14px; background: var(--surface); }
 .card.ask { border: 2px solid var(--fg); }
 .card.request { border: 1px solid var(--fg); }
 .card.note { border: 1px dashed var(--muted); }
 .card.flash { box-shadow: 0 0 0 3px var(--fg); }
-.card .meta { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
-.card .meta .who { color: var(--fg); font-weight: 700; }
+.card .meta { display: flex; gap: 4px 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.card .meta .who2 { color: var(--fg); font-weight: 700; overflow-wrap: anywhere; }
 .card .meta .id { margin-left: auto; color: var(--faint); font-size: 12px; }
 .tag { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; padding: 1px 7px; border: 1px solid var(--fg); }
 .tag.ask { background: var(--fg); color: var(--bg); }
 .tag.note { border-style: dashed; border-color: var(--muted); color: var(--muted); }
 .card .body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0; font-size: 15.5px; }
-.dflt { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 13.5px; padding: 8px 10px; border-left: 3px solid var(--fg); background: var(--surface2); margin: 8px 0; }
+.dflt { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 12px; font-size: 13.5px; padding: 8px 10px; border-left: 3px solid var(--fg); background: var(--surface2); margin: 8px 0; overflow-wrap: anywhere; }
 .dflt .k { color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: 11.5px; padding-top: 2px; }
 .countdown { display: inline-block; font-variant-numeric: tabular-nums; font-weight: 700; margin-top: 4px; padding: 1px 0; }
 .countdown.soon { background: var(--fg); color: var(--bg); padding: 1px 8px; }
 .ctx { font-size: 13.5px; color: var(--muted); border-left: 1px solid var(--line); padding: 2px 0 2px 10px; margin: 6px 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .opts { display: grid; gap: 6px; margin: 10px 0 4px; }
 .opts .hint { font-size: 12px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
-.opt { display: grid; grid-template-columns: 22px 1fr; gap: 2px 8px; text-align: left; background: transparent; border: 1px solid var(--line); padding: 8px 10px; cursor: pointer; border-radius: 2px; }
+.opt { display: grid; grid-template-columns: 3.2ch minmax(0, 1fr); gap: 2px 8px; text-align: left; background: transparent; border: 1px solid var(--line); padding: 8px 10px; cursor: pointer; border-radius: 2px; min-width: 0; }
 .opt:hover { border-color: var(--fg); }
 .opt[aria-pressed="true"] { border-color: var(--fg); box-shadow: inset 3px 0 0 var(--fg); background: var(--surface2); }
-.opt .mk { font-weight: 700; }
-.opt .ol { font-weight: 700; }
-.opt .badge { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; border: 1px solid currentColor; padding: 0 5px; margin-left: 8px; font-weight: 400; color: var(--muted); }
+.opt .mk { font-weight: 700; white-space: nowrap; }
+.opt .ol { font-weight: 700; overflow-wrap: anywhere; }
+.opt .badge { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; border: 1px solid currentColor; padding: 0 5px; margin-left: 8px; font-weight: 400; color: var(--muted); white-space: nowrap; }
 .opt .badge.rec { color: var(--fg); }
-.opt .od { grid-column: 2; font-size: 13.5px; color: var(--muted); white-space: pre-wrap; }
+.opt .od { grid-column: 2; font-size: 13.5px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 .opt.closed { cursor: default; }
 .disc { margin: 10px 0 0; border-top: 1px solid var(--line); }
 .disc .d { padding: 6px 0 0; font-size: 14px; }
-.disc .d .who { font-weight: 700; } .disc .d .when { color: var(--faint); font-size: 12px; margin-left: 6px; }
+.disc .d .who2 { font-weight: 700; } .disc .d .when { color: var(--faint); font-size: 12px; margin-left: 6px; }
 .disc .d.op { padding-left: 10px; border-left: 2px solid var(--fg); }
 .disc .d .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
 .reply { margin-top: 10px; display: grid; gap: 8px; }
@@ -125,75 +205,17 @@ main > section, main > aside { min-width: 0; }
 details.closed { margin-top: 18px; }
 details.closed summary { cursor: pointer; color: var(--muted); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
 .card.done { opacity: .6; border: 1px solid var(--line); }
-.res { font-size: 13.5px; }
+.res { font-size: 13.5px; overflow-wrap: anywhere; }
 .sent .ans { border-top: 1px solid var(--line); padding: 8px 0 2px; }
-.sent .ans .who { font-weight: 700; } .sent .ans .when { color: var(--faint); font-size: 12px; margin-left: 8px; }
+.sent .ans .who2 { font-weight: 700; } .sent .ans .when { color: var(--faint); font-size: 12px; margin-left: 8px; }
 .sent .ans .txt { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; font-size: 14.5px; }
 .sent .ansact { margin-top: 4px; }
 .sent .mine { margin: 6px 0 0 14px; padding-left: 10px; border-left: 2px solid var(--fg); font-size: 14px; }
-.sent .mine .who { font-weight: 700; }
+.sent .mine .who2 { font-weight: 700; }
+.sent .mine .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
 .sent .waiting { color: var(--faint); font-size: 13px; padding: 6px 0; }
 .sent-h { margin-top: 30px; }
 .res b { text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }
-
-/* ---- bus ---- */
-.ev { position: relative; display: grid; grid-template-columns: 52px 1fr; gap: 10px; padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: 14px; cursor: pointer; }
-.ev:hover { background: var(--surface2); }
-.ev .ts { color: var(--faint); font-variant-numeric: tabular-nums; font-size: 12.5px; padding-top: 1px; }
-.ev .head { color: var(--muted); font-size: 13px; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
-.ev .head b { color: var(--fg); }
-.ev .k { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; border: 1px solid var(--line); padding: 0 5px; }
-.ev .txt { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
-.ev.status .txt { color: var(--muted); }
-.ev.op .head b { text-decoration: underline; text-underline-offset: 3px; }
-.ev.ask, .ev.halt { border-left: 6px solid transparent; border-image: repeating-linear-gradient(135deg, var(--fg) 0 2px, transparent 2px 5px) 6; }
-.search { display: flex; gap: 8px; margin: 0 0 10px; }
-.search input { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 2px; padding: 7px 10px; }
-.search input:focus { border-color: var(--fg); outline: none; }
-.searchnote { font-size: 12.5px; color: var(--muted); margin: -4px 0 8px; display: flex; gap: 10px; align-items: baseline; }
-.idlink { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
-.idlink:hover { color: var(--fg); }
-.mini { background: transparent; border: 1px solid var(--line); color: var(--muted); padding: 2px 8px; font-size: 12.5px; cursor: pointer; border-radius: 2px; }
-.mini:hover { border-color: var(--fg); color: var(--fg); }
-.ev .re { position: absolute; top: 8px; right: 6px; color: var(--faint); font-size: 12px; visibility: hidden; background: var(--surface2); padding-left: 6px; }
-.ev:hover .re { visibility: visible; }
-
-/* ---- compose: the operator's desk ---- */
-aside#side { align-self: start; position: sticky; top: 72px; }
-.desk { border: 2px solid var(--fg); background: var(--surface); padding: 16px; box-shadow: var(--shadow); }
-.desk h2 { font-family: var(--f-display); font-size: 15px; letter-spacing: .14em; text-transform: uppercase; margin: 0 0 14px; }
-.field { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: start; margin-bottom: 12px; }
-.field > .lbl { padding-top: 5px; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 132px; overflow-y: auto; }
-.chip { font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; cursor: pointer; background: transparent; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip:hover { border-color: var(--fg); color: var(--fg); }
-.chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 700; }
-.chip.np { border-style: dashed; }
-.chip.away { border-style: dotted; opacity: .75; }
-.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--fg); }
-.seg button { background: transparent; border: 0; border-left: 1px solid var(--fg); padding: 6px 4px; cursor: pointer; font-size: 13.5px; }
-.seg button:first-child { border-left: 0; }
-.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 700; }
-.kindhint { grid-column: 2; font-size: 12.5px; color: var(--muted); margin-top: -4px; }
-#msg { min-height: 140px; font-size: 15.5px; line-height: 1.5; }
-.sendrow { display: grid; gap: 6px; margin-top: 10px; }
-#sendBtn { padding: 12px 14px; font-size: 16px; letter-spacing: .06em; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-#sendBtn .to { font-weight: 400; text-transform: none; letter-spacing: 0; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kbd { font-size: 12px; color: var(--muted); text-align: right; }
-.control { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
-.control .btn { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.sessions { margin-top: 22px; }
-.sess { display: grid; grid-template-columns: 14px 1fr auto auto auto; gap: 8px; align-items: center; padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: 14px; cursor: pointer; }
-.sess:hover { background: var(--surface2); }
-.sess .h { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sm .rc { display: inline-block; margin-top: 3px; font-weight: 400; }
-.sess .rc, .sm .rc { font-size: 12px; color: var(--muted); text-decoration: none; border: 1px solid var(--line); padding: 0 6px; white-space: nowrap; }
-.sess .rc:hover, .sm .rc:hover { color: var(--fg); border-color: var(--fg); }
-.sess .stale { border: 1px dashed var(--fg); color: var(--fg); padding: 0 5px; text-transform: none; letter-spacing: 0; }
-.sess .st { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
-.sess.off { color: var(--faint); }
-.foot { margin-top: 16px; display: flex; gap: 4px; flex-wrap: wrap; font-size: 12.5px; }
 
 /* ---- login / toast ---- */
 #login { max-width: 420px; margin: 18vh auto; padding: 0 var(--gutter); }
@@ -201,29 +223,29 @@ aside#side { align-self: start; position: sticky; top: 72px; }
 #login p { color: var(--muted); }
 #login .row { display: flex; gap: 8px; margin-top: 10px; }
 /* ---- handoff reader ---- */
-#reader { position: fixed; inset: 0; z-index: 25; background: color-mix(in srgb, var(--bg) 70%, transparent); display: flex; justify-content: center; align-items: flex-start; padding: 5vh 16px; overflow-y: auto; }
-#reader .pane { background: var(--surface); border: 2px solid var(--fg); max-width: 760px; width: 100%; padding: 18px 22px 24px; box-shadow: var(--shadow); }
-#reader .top { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; border-bottom: 1px solid var(--rule); padding-bottom: 8px; margin-bottom: 6px; }
+#reader { position: fixed; inset: 0; z-index: 25; background: color-mix(in srgb, var(--bg) 70%, transparent); display: flex; justify-content: center; align-items: flex-start; padding: 5vh 16px; overflow-y: auto; overscroll-behavior: contain; }
+#reader .sheet { background: var(--surface); border: 2px solid var(--fg); max-width: 760px; width: 100%; min-width: 0; padding: 0 22px 24px; box-shadow: var(--shadow); }
+#reader .top { position: sticky; top: -5vh; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; border-bottom: 1px solid var(--rule); padding: 16px 0 8px; margin-bottom: 6px; background: var(--surface); }
 #reader .top h2 { font-size: 15px; letter-spacing: .12em; text-transform: uppercase; margin: 0; }
-#reader .top .meta { color: var(--muted); font-size: 13px; }
-#reader .top .spacer { flex: 1; }
+#reader .top .meta { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 #reader .note h4 { font-size: 14px; letter-spacing: .1em; text-transform: uppercase; margin: 18px 0 6px; }
 #reader .note p, #reader .note li { line-height: 1.55; overflow-wrap: anywhere; }
 #reader .note ul { padding-left: 20px; margin: 4px 0; }
-#reader .note blockquote { margin: 6px 0; padding: 4px 12px; border-left: 3px solid var(--fg); background: var(--surface2); }
+#reader .note blockquote { margin: 6px 0; padding: 4px 12px; border-left: 3px solid var(--fg); background: var(--surface2); overflow-wrap: anywhere; }
 #reader .note em { color: var(--muted); }
-.sess .ho { font-size: 12px; color: var(--muted); border: 1px solid var(--line); padding: 0 6px; background: transparent; cursor: pointer; white-space: nowrap; }
-.sess .ho:hover { color: var(--fg); border-color: var(--fg); }
-#toast { position: fixed; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 16px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100vw - 32px); z-index: 20; }
+#reader .bottom { margin-top: 18px; display: flex; justify-content: flex-end; }
+#toast { position: fixed; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 16px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100vw - 32px); z-index: 30; }
 #toast.show { opacity: 1; }
 
 /* ---- telemetry ---- */
 :root { --s1: #e3e6ea; --s2: #c3c8cf; --s3: #8f97a1; --s4: #4f5761; --s5: #0b0c0e; --grid: #e6e8eb; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --s1: #1b1f25; --s2: #353b44; --s3: #6b737e; --s4: #aab2bc; --s5: #f2f3f5; --grid: #1f2329; } }
 :root[data-theme="dark"] { --s1: #1b1f25; --s2: #353b44; --s3: #6b737e; --s4: #aab2bc; --s5: #f2f3f5; --grid: #1f2329; }
-#telem { padding: 22px max(var(--gutter), env(safe-area-inset-right, 0px)) 72px max(var(--gutter), env(safe-area-inset-left, 0px)); max-width: 1680px; margin: 0 auto; }
+#telem { min-height: 0; overflow-y: auto; padding: 22px max(var(--gutter), env(safe-area-inset-right, 0px)) 72px max(var(--gutter), env(safe-area-inset-left, 0px)); }
+#telem > * { max-width: 1680px; margin-left: auto; margin-right: auto; }
 .tfilters { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 18px; }
 .tfilters .seg { grid-template-columns: repeat(4, 64px); }
+.tfilters .seg button { padding: 6px 4px; }
 .tfilters .upd { font-size: 12.5px; color: var(--muted); }
 #telemBody.loading { opacity: .55; transition: opacity .2s; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 22px; }
@@ -252,6 +274,8 @@ aside#side { align-self: start; position: sticky; top: 72px; }
 .sm .h { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
 .sm .h small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
 .sm .num { text-align: right; font-variant-numeric: tabular-nums; }
+.sm .rc { display: inline-block; margin-top: 3px; font-weight: 400; font-size: 12px; color: var(--muted); text-decoration: none; border: 1px solid var(--line); padding: 0 6px; white-space: nowrap; }
+.sm .rc:hover { color: var(--fg); border-color: var(--fg); }
 .mx { border-collapse: separate; border-spacing: 2px; font-size: 12.5px; }
 .mx th { font-weight: 400; color: var(--muted); padding: 2px 6px; text-align: left; white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .mx thead th { writing-mode: vertical-rl; transform: rotate(180deg); text-align: left; height: 120px; vertical-align: bottom; }
@@ -267,7 +291,7 @@ table.tt { width: 100%; border-collapse: collapse; font-size: 13px; font-variant
 table.tt th, table.tt td { border-bottom: 1px solid var(--line); padding: 5px 8px; text-align: right; }
 table.tt th:first-child, table.tt td:first-child { text-align: left; }
 table.tt th { color: var(--muted); font-weight: 400; }
-details.tv { margin-top: 10px; } details.tv summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+details.tv { margin-top: 10px; } details.tv summary { cursor: pointer; font-size: 12.5px; color: var(--muted); padding: 6px 0; }
 details.tv .scroll { max-height: 280px; overflow: auto; margin-top: 6px; }
 #tip { position: fixed; z-index: 30; pointer-events: none; background: var(--surface); border: 1px solid var(--fg); padding: 6px 9px; font-size: 12.5px; box-shadow: var(--shadow); max-width: 280px; display: none; }
 #tip .v { font-weight: 700; font-size: 14px; } #tip .l { color: var(--muted); }
@@ -275,18 +299,56 @@ details.tv .scroll { max-height: 280px; overflow: auto; margin-top: 6px; }
 @media (max-width: 1000px) { .tgrid { grid-template-columns: minmax(0, 1fr); } .sm { grid-template-columns: minmax(0, 1fr) 80px 90px; } .sm .spark { grid-column: 1 / -1; grid-row: 2; } }
 
 @media (max-width: 1180px) {
-  main { grid-template-columns: minmax(0, 1fr) 360px; }
-  #inbox { grid-column: 1; grid-row: 1; } #feed { grid-column: 1; grid-row: 2; }
-  aside#side { grid-column: 2; grid-row: 1 / span 2; }
+  main { grid-template-columns: 200px minmax(0, 1.15fr) minmax(0, 1fr); }
+  .pane { padding-left: 14px; padding-right: 14px; }
+  .composer { margin: 0 -14px; padding-left: 14px; padding-right: 14px; }
+  .kbd { display: none; }
 }
-@media (max-width: 820px) {
-  main { grid-template-columns: minmax(0, 1fr); padding-top: 14px; }
+/* phones, and any screen too short for three columns (a phone held sideways): one pane at a time */
+@media (max-width: 860px), (max-height: 520px) and (max-width: 1100px) {
   nav.tabs { display: flex; }
-  main > section, main > aside { display: none; grid-column: auto !important; grid-row: auto !important; }
-  main > .active { display: block; }
-  aside#side { position: static; }
-  .desk { box-shadow: none; }
+  main { display: block; position: relative; }
+  .pane { display: none; position: absolute; inset: 0; border-left: 0 !important; padding: 14px max(var(--gutter), env(safe-area-inset-right, 0px)) 32px max(var(--gutter), env(safe-area-inset-left, 0px)); }
+  .pane.active { display: block; }
+  #feed.active, #roster.active { display: flex; }
+  #feed:not(.active), #roster:not(.active) { display: none; }
+  #feed { padding-bottom: 0; }
+  .composer { margin: 0 calc(-1 * max(var(--gutter), env(safe-area-inset-left, 0px))); padding-left: var(--gutter); padding-right: var(--gutter); }
+  header.top { padding-top: calc(8px + env(safe-area-inset-top, 0px)); padding-bottom: 8px; gap: 12px; }
   header.top .wide { display: none; }
+  .wordmark { font-size: 19px; }
+  #writeBtn { display: flex; justify-content: space-between; }
+  .who { padding: 10px 6px; }
+  .who .act { padding: 3px 8px; }
+  .mini, .seg button, .btn { min-height: 40px; }
+  .tochip { min-height: 30px; }
+  #sendBtn { min-height: 44px; }
+  .sec-h .tools { gap: 10px; }
+  .kindhint { display: none; }
+  .crow { flex-wrap: wrap; }
+  .crow .lbl { display: none; }
+  .toline { flex-basis: 100%; order: 2; }
+  .seg#kindSeg { order: 1; width: 100%; grid-template-columns: repeat(3, 1fr); }
+  #sendBtn { max-width: none; flex: 1; justify-content: space-between; }
+  nav.tabs button { white-space: nowrap; letter-spacing: .04em; font-size: 12.5px; }
+  header.top { gap: 8px; padding-right: 8px; }
+  header.top .eyebrow { gap: 2px; }
+  header.top .btn.ghost { padding: 4px 6px; min-height: 36px; letter-spacing: 0; }
+}
+/* a phone held sideways: the composer folds to one band (kinds + chips, then text beside send) */
+@media (max-height: 520px) and (max-width: 1100px) {
+  header.top { padding-top: 4px; padding-bottom: 4px; }
+  nav.tabs button { min-height: 36px; padding: 6px 4px; }
+  #feed .sec-h { display: none; }
+  .composer { padding-top: 6px; padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; align-items: end; }
+  .composer .crow { grid-column: 1 / -1; flex-wrap: nowrap; margin: 0; }
+  .composer .toline { order: 0; flex-basis: auto; }
+  .seg#kindSeg { order: 1; width: auto; grid-template-columns: repeat(3, auto); }
+  .seg#kindSeg button { min-height: 32px; padding: 2px 10px; }
+  .composer #msg { min-height: 40px; max-height: 30vh; }
+  .composer .srow { margin: 0; }
+  #sendBtn { min-height: 40px; flex: none; }
+  #sendBtn .to { display: none; }
 }
 </style>
 <link rel="stylesheet" href="/brand.css">
@@ -308,7 +370,7 @@ details.tv .scroll { max-height: 280px; overflow: auto; margin-top: 6px; }
     <div class="eyebrow"><span class="dot" id="live" title="live stream"></span><span id="meta"></span></div>
     <span class="spacer"></span>
     <div class="eyebrow">
-      <button class="btn ghost" id="viewBtn" onclick="toggleView()">telemetry</button>
+      <button class="btn ghost wide" id="viewBtn" onclick="toggleView()">telemetry</button>
       <button class="btn ghost" id="pushBtn" onclick="enablePush()">enable push</button>
       <button class="btn ghost" onclick="cycleTheme()" title="theme: system → flip → system">theme</button>
     </div>
@@ -316,22 +378,30 @@ details.tv .scroll { max-height: 280px; overflow: auto; margin-top: 6px; }
   <nav class="tabs">
     <button data-tab="inbox" class="active">Inbox <span id="tabInbox"></span></button>
     <button data-tab="feed">Bus</button>
-    <button data-tab="side">Send</button>
+    <button data-tab="roster">Sessions <span id="tabTo"></span></button>
     <button data-tab="telem">Stats</button>
   </nav>
   <main>
-    <section id="inbox" class="active">
-      <div class="sec-h"><h2>Inbox</h2><span class="n" id="openCount"></span>
-        <div class="tools"><select class="mini" id="inboxSort" title="sort the inbox">
-          <option value="urgent">urgent first</option><option value="new">newest</option><option value="old">oldest</option><option value="who">by session</option>
-        </select></div></div>
-      <div id="open"></div>
-      <details class="closed"><summary>recently closed</summary><div id="closed" style="margin-top:12px"></div></details>
-      <div class="sec-h sent-h"><h2>Your requests</h2><span class="n" id="sentCount"></span></div>
-      <div id="sent"></div>
-    </section>
+    <aside id="roster" class="pane">
+      <div class="sec-h"><h2>Sessions</h2><span class="n" id="liveCount"></span></div>
+      <div class="list">
+        <button class="who all" data-to="@all" aria-pressed="true"><span class="g">✱</span><span class="nm">everyone</span><span></span></button>
+        <div id="sessions"></div>
+      </div>
+      <div class="rfoot">
+        <button class="btn primary" id="writeBtn" onclick="focusCompose()"><span>write</span><span id="writeTo"></span></button>
+        <div class="two">
+          <button class="btn" id="haltBtn" onclick="haltSel()">⏸ halt all</button>
+          <button class="btn" id="resumeBtn" onclick="resumeSel()">▶ resume all</button>
+        </div>
+        <div class="meta">
+          <button class="btn ghost" onclick="testPush()">test push</button>
+          <button class="btn ghost" onclick="logout()">sign out</button>
+        </div>
+      </div>
+    </aside>
 
-    <section id="feed">
+    <section id="feed" class="pane">
       <div class="sec-h"><h2>Bus</h2>
         <div class="tools">
           <label><input type="checkbox" id="hideStatus"> hide status</label>
@@ -341,40 +411,31 @@ details.tv .scroll { max-height: 280px; overflow: auto; margin-top: 6px; }
       </div>
       <div class="search"><input id="q" type="search" placeholder="search: text, @handle, or an id" autocomplete="off" spellcheck="false"></div>
       <div class="searchnote" id="searchNote" hidden></div>
-      <div id="events"></div>
-    </section>
-
-    <aside id="side">
-      <div class="desk">
-        <h2>Send</h2>
-        <div class="field"><span class="lbl">to</span><div><div class="chips" id="toChips"></div><div class="kindhint" style="margin-top:6px">click to add or remove · each one gets it directly</div></div></div>
-        <div class="field"><span class="lbl">as</span>
+      <div class="scroll" id="feedScroll"><div id="events"></div></div>
+      <div class="composer">
+        <div class="crow"><span class="lbl">to</span><div class="toline" id="toLine"></div>
           <div class="seg" id="kindSeg">
             <button data-kind="notice" aria-pressed="true">notice</button>
             <button data-kind="request" aria-pressed="false">request</button>
             <button data-kind="info" aria-pressed="false">info</button>
           </div>
-          <div class="kindhint" id="kindHint"></div>
         </div>
-        <textarea id="msg" placeholder="write to the sessions…"></textarea>
-        <div class="sendrow">
-          <button class="btn primary" id="sendBtn" onclick="send()"><span>Send</span><span class="to" id="sendTo">notice → @all</span></button>
-          <div class="kbd">ctrl/⌘ + enter</div>
-        </div>
-        <div class="control">
-          <button class="btn" id="haltBtn" onclick="haltSel()">⏸ halt @all</button>
-          <button class="btn" id="resumeBtn" onclick="resumeSel()">▶ resume @all</button>
-        </div>
+        <textarea id="msg" rows="2" placeholder="write to the sessions…"></textarea>
+        <div class="srow"><span class="kindhint" id="kindHint"></span><span class="kbd">ctrl/⌘ + enter</span>
+          <button class="btn primary" id="sendBtn" onclick="send()"><span>Send</span><span class="to" id="sendTo">notice → everyone</span></button></div>
       </div>
-      <div class="sessions">
-        <div class="sec-h"><h2>Sessions</h2><span class="n" id="liveCount"></span></div>
-        <div id="sessions"></div>
-      </div>
-      <div class="foot">
-        <button class="btn ghost" onclick="testPush()">send test push</button>
-        <button class="btn ghost" onclick="logout()">sign out</button>
-      </div>
-    </aside>
+    </section>
+
+    <section id="inbox" class="pane active">
+      <div class="sec-h"><h2>Inbox</h2><span class="n" id="openCount"></span>
+        <div class="tools"><select class="mini" id="inboxSort" title="sort the inbox">
+          <option value="urgent">urgent first</option><option value="new">newest</option><option value="old">oldest</option><option value="who">by session</option>
+        </select></div></div>
+      <div id="open"></div>
+      <details class="closed"><summary>recently closed</summary><div id="closed" style="margin-top:12px"></div></details>
+      <div class="sec-h sent-h"><h2>Your requests</h2><span class="n" id="sentCount"></span></div>
+      <div id="sent"></div>
+    </section>
   </main>
   <div id="telem" hidden>
     <div class="tfilters">
@@ -388,11 +449,12 @@ details.tv .scroll { max-height: 280px; overflow: auto; margin-top: 6px; }
   </div>
 </div>
 <div id="tip"></div>
-<div id="reader" hidden onclick="if (event.target === this) closeReader()"><div class="pane">
+<div id="reader" hidden onclick="if (event.target === this) closeReader()"><div class="sheet">
   <div class="top"><h2>Handoff</h2><span class="meta" id="rdMeta"></span><span class="spacer"></span>
     <button class="btn ghost" id="rdOlder" onclick="stepReader(1)">older</button><button class="btn ghost" id="rdNewer" onclick="stepReader(-1)">newer</button>
     <button class="btn" onclick="closeReader()">close</button></div>
-  <div class="note" id="rdNote"></div></div></div>
+  <div class="note" id="rdNote"></div>
+  <div class="bottom"><button class="btn" onclick="closeReader()">close</button></div></div></div>
 <div id="toast"></div>
 
 <script>
@@ -408,6 +470,7 @@ const KIND_HINT = {
   request: "pushed; asks for a reply; answers collect under Your requests",
   info: "pushed; context for the sessions, no reply expected",
 };
+const narrow = () => matchMedia("(max-width: 860px), (max-height: 520px) and (max-width: 1100px)").matches;
 
 function store(k, v) { try { v === undefined ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
 function recall(k) { try { return localStorage.getItem(k); } catch { return null; } }
@@ -437,8 +500,29 @@ function cycleTheme() {
   store("orc-theme", next ?? undefined); applyTheme(); toast(next ? `${next} theme` : "following system theme");
 }
 
+// ---- names: each session shows its shortest unique leading words ----
+// The server takes any unique prefix as an address (@steer reaches steering-and-serving-…), so the
+// short name shown is also one you could type. The full handle is always in the title.
+let nicks = {};
+function computeNicks() {
+  const hs = new Set((state ? state.presence : []).map((p) => p.handle));
+  for (const e of events) { if (e.from && e.from !== OP() && e.from !== "orchestra") hs.add(e.from); }
+  const all = [...hs], out = {};
+  for (const h of all) {
+    const parts = h.split("-");
+    out[h] = h;
+    for (let k = 1; k <= parts.length; k++) {
+      const cand = parts.slice(0, k).join("-");
+      if (!all.some((o) => o !== h && o.startsWith(cand))) { out[h] = cand; break; }
+    }
+  }
+  nicks = out;
+}
+const nick = (h) => (h === OP() ? "you" : nicks[h] || h);
+const nickTo = (to) => (to === "@all" ? "everyone" : String(to).split(",").map((r) => nick(r.replace(/^@/, ""))).join(", "));
+
 // ---- time ----
-const hhmm = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const hhmm = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 function ago(iso) {
   const s = (Date.now() - new Date(iso)) / 1000;
   if (s < 60) return "just now"; if (s < 3600) return Math.floor(s / 60) + "m ago";
@@ -475,9 +559,10 @@ function optionsBlock(t, closed) {
   return `<div class="opts">${hint}${rows}</div>`;
 }
 function discussion(t) {
-  const items = (t.answers || []).filter((a) => a.kind === "reply");
+  // the back-and-forth on a thread: replies both ways, and other sessions' answers to a group request
+  const items = (t.answers || []);
   if (!items.length) return "";
-  return `<div class="disc">${items.map((a) => `<div class="d${a.from === OP() ? " op" : ""}"><span class="who">${a.from === OP() ? "you" : esc(a.from)}</span><span class="when">${a.ts ? ago(a.ts) : ""}</span><div class="txt">${esc(a.body)}</div></div>`).join("")}</div>`;
+  return `<div class="disc">${items.map((a) => `<div class="d${a.from === OP() ? " op" : ""}"><span class="who2" title="${esc(a.from)}">${esc(nick(a.from))}</span><span class="when">${a.kind === "answer" ? "answered · " : ""}${a.ts ? ago(a.ts) : ""}</span><div class="txt">${esc(a.body)}</div></div>`).join("")}</div>`;
 }
 function threadCard(t, closed) {
   const k = t.kind;
@@ -504,8 +589,9 @@ function threadCard(t, closed) {
   } else {
     foot = `<div class="res"><b>${esc(t.status)}</b>${t.choice && t.choice.length ? " · " + t.choice.map(esc).join(", ") : ""}${t.resolution ? " · " + esc(t.resolution) : ""} · ${ago(t.resolved_at || t.ts)}</div>`;
   }
+  const also = t.to && t.to.includes(",") ? `<span title="${esc(t.to)}">+ ${esc(nickTo(t.to.split(",").filter((r) => r !== "@" + OP()).join(",")))}</span>` : "";
   return `<div class="card ${k}${closed ? " done" : ""}" id="t-${t.id}">
-    <div class="meta"><span class="tag ${k}">${k}</span><span class="who">${esc(t.from)}</span>${topic}<span>${ago(t.ts)}</span><span class="id idlink" data-id="${t.id}">${t.id}</span></div>
+    <div class="meta"><span class="tag ${k}">${k}</span><span class="who2" title="${esc(t.from)}">${esc(nick(t.from))}</span>${also}${topic}<span>${ago(t.ts)}</span><span class="id idlink" data-id="${t.id}">${t.id}</span></div>
     <div class="body">${esc(t.body)}</div>${extra}${discussion(t)}${foot}</div>`;
 }
 // Re-rendering replaces nodes: that drops focus from a box being typed in and removes the
@@ -553,15 +639,16 @@ function renderInboxNow() {
 }
 // Each response to one of your requests can be replied to directly; the reply is
 // addressed to that session (so it's pushed to it) and refs the response it answers.
+// The server files those replies in the thread (marked `re`), so they survive reloads.
 const openReplies = new Set();
-function answerBlock(a) {
-  const mine = events.filter((e) => e.from === OP() && e.ref && e.ref === a.id)
-    .map((e) => `<div class="mine"><span class="who">you</span> <span class="when">${ago(e.ts)}</span><div class="txt">${esc(e.body)}</div></div>`).join("");
+function answerBlock(a, replies) {
+  const mine = replies.filter((r) => r.re === a.id)
+    .map((r) => `<div class="mine"><span class="who2">${esc(nick(r.from))}</span> <span class="when">${r.ts ? ago(r.ts) : ""}</span><div class="txt">${esc(r.body)}</div></div>`).join("");
   const box = a.id && openReplies.has(a.id)
-    ? `<div class="reply"><textarea data-redraft="${esc(a.id)}" data-to="${esc(a.from)}" rows="2" placeholder="reply to ${esc(a.from)}…">${esc(drafts["re-" + a.id] || "")}</textarea>
-       <div class="row"><button class="btn primary" onclick="replyTo('${esc(a.id)}','${esc(a.from)}')">send → @${esc(a.from)}</button><span class="spacer"></span><button class="btn ghost" onclick="toggleReply('${esc(a.id)}')">cancel</button></div></div>`
-    : a.id ? `<div class="ansact"><button class="mini" onclick="toggleReply('${esc(a.id)}')">reply to ${esc(a.from)}</button></div>` : "";
-  return `<div class="ans"><span class="who">${esc(a.from)}</span><span class="when">${a.kind === "reply" ? "reply · " : ""}${a.ts ? ago(a.ts) : ""}</span>${a.id ? `<span class="when idlink" data-id="${esc(a.id)}">${esc(a.id)}</span>` : ""}<div class="txt">${esc(a.body)}</div>${mine}${box}</div>`;
+    ? `<div class="reply"><textarea data-redraft="${esc(a.id)}" data-to="${esc(a.from)}" rows="2" placeholder="reply to ${esc(nick(a.from))}…">${esc(drafts["re-" + a.id] || "")}</textarea>
+       <div class="row"><button class="btn primary" onclick="replyTo('${esc(a.id)}','${esc(a.from)}')">send → ${esc(nick(a.from))}</button><span class="spacer"></span><button class="btn ghost" onclick="toggleReply('${esc(a.id)}')">cancel</button></div></div>`
+    : a.id ? `<div class="ansact"><button class="mini" onclick="toggleReply('${esc(a.id)}')">reply to ${esc(nick(a.from))}</button></div>` : "";
+  return `<div class="ans"><span class="who2" title="${esc(a.from)}">${esc(nick(a.from))}</span><span class="when">${a.kind === "reply" ? "reply · " : ""}${a.ts ? ago(a.ts) : ""}</span>${a.id ? `<span class="when idlink" data-id="${esc(a.id)}">${esc(a.id)}</span>` : ""}<div class="txt">${esc(a.body)}</div>${mine}${box}</div>`;
 }
 function toggleReply(id) {
   openReplies.has(id) ? openReplies.delete(id) : openReplies.add(id);
@@ -574,28 +661,31 @@ async function replyTo(id, to) {
   try {
     await post({ kind: "reply", to: "@" + to, ref: id, body });
     delete drafts["re-" + id]; openReplies.delete(id);
-    toast(`reply sent → @${to}`);
-    setTimeout(() => state && renderInboxNow(), 400);  // let the event arrive so "you:" shows
+    toast(`reply sent → ${nick(to)}`);
+    await refresh();
   } catch (e) { toast("failed: " + e.message); }
 }
 function sentCard(t) {
-  const answers = (t.answers && t.answers.length) ? t.answers
-    : (t.status === "answered" ? [{ from: t.resolved_by, body: t.resolution, ts: t.resolved_at }] : []);
+  const all = t.answers || [];
+  const replies = all.filter((a) => a.re);
+  const answers = all.length ? all.filter((a) => !a.re)
+    : (t.status === "answered" ? [{ from: t.resolved_by, body: t.resolution, ts: t.resolved_at, kind: "answer" }] : []);
+  const n = answers.filter((a) => a.kind !== "reply").length;
   const list = answers.length
-    ? answers.map(answerBlock).join("")
+    ? answers.map((a) => answerBlock(a, replies)).join("")
     : `<div class="waiting">no answers yet</div>`;
   const open = t.status === "open";
   const tail = open ? `<div class="reply"><div class="row"><span class="spacer"></span><button class="btn" onclick="ack('${t.id}')">close</button></div></div>`
     : `<div class="res"><b>${esc(t.status)}</b> · ${ago(t.resolved_at || t.ts)}</div>`;
   return `<div class="card request sent${open ? "" : " done"}" id="t-${t.id}">
-    <div class="meta"><span class="tag">${esc(t.kind)}</span><span class="who">→ ${esc(t.to)}</span><span>${ago(t.ts)}</span><span>${answers.length} answer${answers.length === 1 ? "" : "s"}</span><span class="id idlink" data-id="${t.id}">${t.id}</span></div>
+    <div class="meta"><span class="tag">${esc(t.kind)}</span><span class="who2" title="${esc(t.to)}">→ ${esc(nickTo(t.to))}</span><span>${ago(t.ts)}</span><span>${n} answer${n === 1 ? "" : "s"}</span><span class="id idlink" data-id="${t.id}">${t.id}</span></div>
     <div class="body">${esc(t.body)}</div>${list}${tail}</div>`;
 }
 function renderSent() {
   const sent = state.inbox.sent || [];
   const open = sent.filter((t) => t.status === "open").length;
   $("#sentCount").textContent = sent.length ? `${open} open` : "";
-  $("#sent").innerHTML = sent.length ? sent.map(sentCard).join("") : `<div class="empty">send a request from the desk and answers collect here</div>`;
+  $("#sent").innerHTML = sent.length ? sent.map(sentCard).join("") : `<div class="empty">send a request from the composer and answers collect here</div>`;
 }
 async function closeThread(kind, id, body, extra = {}) {
   try { await post({ kind, ref: id, body, ...extra }); delete drafts[id]; delete picks[id]; await refresh(); toast(kind === "answer" ? "sent" : "closed"); }
@@ -620,7 +710,7 @@ async function askMore(id) {
   if (!body) { toast("write what you'd like to know"); const ta = document.querySelector(`textarea[data-draft="${id}"]`); if (ta) ta.focus({ preventScroll: true }); return; }
   try {
     await post({ kind: "reply", to: "@" + (t ? t.from : "all"), ref: id, body });
-    delete drafts[id]; await refresh(); toast(`asked ${t ? t.from : ""} for more · still open`);
+    delete drafts[id]; await refresh(); toast(`asked ${t ? nick(t.from) : ""} for more · still open`);
   } catch (e) { toast("failed: " + e.message); }
 }
 // option rows: toggle the pick in place, no re-render
@@ -640,47 +730,87 @@ $("#inbox").addEventListener("click", (e) => {
 function ack(id) { closeThread("ack", id, (drafts[id] || "").trim()); }
 
 // ---- bus ----
+// The bus shows the newest PAGE rows; "earlier" pages back, from memory and then from the server.
+const PAGE = 100;
+let feedLimit = PAGE, feedExhausted = false;
 function evRow(e) {
   const ref = e.ref ? `<span class="idlink" data-id="${esc(e.ref)}">re ${esc(e.ref)}</span>` : "";
   const topic = e.topic ? `<span>#${esc(e.topic)}</span>` : "";
   const extra = e.kind === "ask" ? `\n→ default: ${e.default}` : "";
   const cls = [e.kind, e.from === OP() ? "op" : ""].join(" ");
-  return `<div class="ev ${esc(cls)}" data-from="${esc(e.from)}" title="click to address ${esc(e.from)}">
+  const addressable = e.from !== OP() && e.from !== "orchestra";
+  return `<div class="ev ${esc(cls)}" data-id="${esc(e.id)}">
     <div class="ts" title="${esc(e.ts)}">${hhmm(e.ts)}</div>
-    <div><div class="head"><b>${esc(e.from)}</b><span>→ ${esc(e.to)}</span><span class="k">${esc(e.kind)}</span><span class="idlink" data-id="${esc(e.id)}">${esc(e.id)}</span>${ref}${topic}<span class="re">↩ address</span></div>
-    <div class="txt">${esc(e.body)}${esc(extra)}</div></div></div>`;
+    <div><div class="head"><span class="nm"${addressable ? ` data-to="@${esc(e.from)}" title="${esc(e.from)} · click to write to it"` : ` title="${esc(e.from)}"`}>${esc(nick(e.from))}</span><span class="rcpt" title="${esc(e.to)}">→ ${esc(nickTo(e.to))}</span><span class="k">${esc(e.kind)}</span><span class="idlink" data-id="${esc(e.id)}">${esc(e.id)}</span>${ref}${topic}</div>
+    <div class="txt">${esc(e.body)}${esc(extra)}</div><span class="more">more ▾</span></div></div>`;
 }
-const feedShows = (e) => (!$("#hideStatus").checked || e.kind !== "status") && (!$("#onlyMine").checked || e.from === OP() || e.to === "@" + OP());
+// mark rows whose text is clamped, so they show "more"
+function markLong(root) {
+  root.querySelectorAll(".ev:not(.open) .txt").forEach((t) => t.closest(".ev").classList.toggle("long", t.scrollHeight > t.clientHeight + 2));
+}
+const feedShows = (e) => (!$("#hideStatus").checked || e.kind !== "status") && (!$("#onlyMine").checked || e.from === OP() || (e.to || "").split(",").includes("@" + OP()));
 let newestFirst = recall("orc-feed-order") !== "old";
 let searchQ = "", searchTimer = null;
 function prependEvent(e) {
   if (searchQ) { scheduleSearch(); return; }
   if (!feedShows(e)) return;
-  const box = $("#events");
+  const box = $("#events"), sc = $("#feedScroll");
   const empty = box.querySelector(".empty"); if (empty) empty.remove();
-  box.insertAdjacentHTML(newestFirst ? "afterbegin" : "beforeend", evRow(e));
-  while (box.children.length > 300) (newestFirst ? box.lastElementChild : box.firstElementChild).remove();
+  const atEnd = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 40;
+  const before = sc.scrollHeight, top = sc.scrollTop;
+  const tmp = document.createElement("div"); tmp.innerHTML = evRow(e); const row = tmp.firstElementChild;
+  if (newestFirst) box.insertBefore(row, box.firstChild); else box.appendChild(row);  // "earlier…" sits at the far end
+  row.classList.toggle("long", row.querySelector(".txt").scrollHeight > row.querySelector(".txt").clientHeight + 2);
+  // keep what you're reading still: a new row on top pushes nothing if you've scrolled down
+  if (newestFirst && top > 4) sc.scrollTop = top + (sc.scrollHeight - before);
+  if (!newestFirst && atEnd) sc.scrollTop = sc.scrollHeight;
 }
 function renderFeed() {
   $("#feedOrder").textContent = newestFirst ? "newest first" : "oldest first";
   if (searchQ) return runSearch();
   $("#searchNote").hidden = true;
-  const shown = events.filter(feedShows).slice(-300);
+  const all = events.filter(feedShows);
+  const shown = all.slice(-feedLimit);
   if (newestFirst) shown.reverse();
-  $("#events").innerHTML = shown.map(evRow).join("") || `<div class="empty">quiet bus</div>`;
+  const more = (all.length > shown.length || !feedExhausted) ? `<button class="mini earlier" onclick="earlier()">earlier…</button>` : "";
+  const rows = shown.map(evRow).join("");
+  $("#events").innerHTML = rows ? (newestFirst ? rows + more : more + rows) : `<div class="empty">quiet bus</div>`;
+  markLong($("#events"));
+}
+async function earlier() {
+  const sc = $("#feedScroll"), before = sc.scrollHeight, top = sc.scrollTop;
+  const have = events.filter(feedShows).length;
+  if (have <= feedLimit && !feedExhausted) {
+    const oldest = events.length ? events[0].seq : state.head + 1;
+    if (oldest <= 1) feedExhausted = true;
+    else {
+      try {
+        const d = await api(`/api/events?after=${Math.max(0, oldest - 1 - 2 * PAGE)}&limit=${2 * PAGE}`);
+        const older = d.events.filter((x) => x.seq < oldest);
+        if (!older.length || older[0].seq <= 1) feedExhausted = true;
+        events = older.concat(events); computeNicks();
+      } catch (e) { return toast("couldn't load earlier: " + e.message); }
+    }
+  }
+  feedLimit += PAGE;
+  renderFeed();
+  if (!newestFirst) sc.scrollTop = top + (sc.scrollHeight - before);  // older rows went in above
 }
 function scheduleSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 250); }
 async function runSearch() {
   const q = searchQ;
   if (!q) return renderFeed();
+  const LIMIT = 300;
   try {
-    const r = await api(`/api/search?q=${encodeURIComponent(q)}&limit=300`);
+    const r = await api(`/api/search?q=${encodeURIComponent(q)}&limit=${LIMIT}`);
     if (q !== searchQ) return;  // a newer query is in flight
     const hits = r.events.filter(feedShows);
     if (!newestFirst) hits.reverse();
     $("#events").innerHTML = hits.map(evRow).join("") || `<div class="empty">nothing matches “${esc(q)}”</div>`;
+    markLong($("#events"));
     const note = $("#searchNote");
-    note.innerHTML = `<span>${hits.length} match${hits.length === 1 ? "" : "es"} for “${esc(q)}”</span><button class="mini" onclick="setSearch('')">clear</button>`;
+    const n = r.events.length >= LIMIT ? `${LIMIT}+ matches (newest shown)` : `${hits.length} match${hits.length === 1 ? "" : "es"}`;
+    note.innerHTML = `<span>${n} for “${esc(q)}”</span><button class="mini" onclick="setSearch('')">clear</button>`;
     note.hidden = false;
     // an id that names an inbox thread: point at it there too
     const card = document.getElementById("t-" + q.replace(/^#/, ""));
@@ -689,57 +819,116 @@ async function runSearch() {
 }
 function setSearch(q) {
   searchQ = q.trim(); $("#q").value = searchQ;
-  if (searchQ && matchMedia("(max-width: 820px)").matches) showTab("feed");
+  if (searchQ && narrow()) showTab("feed");
   renderFeed();
 }
 $("#q").addEventListener("input", () => { searchQ = $("#q").value.trim(); searchQ ? scheduleSearch() : renderFeed(); });
 $("#q").addEventListener("keydown", (e) => { if (e.key === "Escape") setSearch(""); });
-$("#feedOrder").onclick = () => { newestFirst = !newestFirst; store("orc-feed-order", newestFirst ? undefined : "old"); renderFeed(); };
+$("#feedOrder").onclick = () => { newestFirst = !newestFirst; store("orc-feed-order", newestFirst ? undefined : "old"); renderFeed(); if (!newestFirst) { const sc = $("#feedScroll"); sc.scrollTop = sc.scrollHeight; } };
 $("#inboxSort").value = recall("orc-inbox-sort") || "urgent";
 $("#inboxSort").onchange = () => { store("orc-inbox-sort", $("#inboxSort").value); if (state) keepFocus(renderInboxNow); };
 document.addEventListener("click", (e) => {
   const l = e.target.closest(".idlink"); if (!l) return;
   e.stopPropagation(); e.preventDefault(); setSearch(l.dataset.id);
 }, true);
+// a row: its sender's name writes to it; anywhere else opens or folds the text (a tap while reading does nothing worse)
 $("#events").addEventListener("click", (e) => {
-  const row = e.target.closest(".ev"); if (!row) return;
-  const from = row.dataset.from;
-  if (from && from !== OP() && from !== "orchestra") { setTo("@" + from); focusCompose(); }
+  const nm = e.target.closest(".nm[data-to]");
+  if (nm) { addTo(nm.dataset.to); focusCompose(); return; }
+  const row = e.target.closest(".ev"); if (!row || getSelection().toString()) return;
+  if (row.classList.contains("long") || row.classList.contains("open")) row.classList.toggle("open");
 });
 
-// ---- sessions + compose ----
+// ---- roster + compose ----
+const glyph = (p) => !p.live ? "○" : !p.channel ? "◌" : p.status === "busy" ? "◐" : "●";
+const fmtCtx = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "K" : String(n);
+const CTX_WINDOW = 1e6;
+function rosterRow(p) {
+  const ctx = p.usage && p.usage.context;
+  const meter = ctx ? `<span class="meter${ctx / CTX_WINDOW > .7 ? " hot" : ""}" title="${fmtCtx(ctx)} context"><i style="width:${Math.min(100, Math.round(ctx / CTX_WINDOW * 100))}%"></i></span>` : "";
+  const stale = p.live && state.client_build && p.build !== state.client_build
+    ? `<span class="stale" title="running older orchestra code (${esc(p.build || "pre-build")}); in that session run /mcp reconnect orchestra (works from the Claude app too)">reconnect</span>` : "";
+  const what = p.live ? (p.channel ? esc(p.status || "live") : "no push")
+    : `away ${ago(p.last_seen).replace(" ago", "")}${p.waiting ? ` · <b>${p.waiting} held</b>` : ""}`;
+  const acts = (p.handoff_at ? `<span class="act" role="button" data-ho="${esc(p.handle)}" title="handoff note written ${esc(ago(p.handoff_at))} (continuity)">✎</span>` : "")
+    + (p.bridge && p.live ? `<a class="act" href="https://claude.ai/code/${encodeURIComponent(p.bridge)}" target="_blank" rel="noopener" title="open this session in the Claude app (Remote Control): /compact, /context, /model work there">↗</a>` : "");
+  const on = toList().includes("@" + p.handle);
+  return `<button class="who${p.live ? "" : " off"}" data-to="@${esc(p.handle)}" aria-pressed="${on}" title="${esc(p.handle)}${p.cwd ? " · " + esc(p.cwd) : ""}${p.live ? "" : " · messages wait until it's back"}">
+    <span class="g">${glyph(p)}</span><span class="nm">${esc(nick(p.handle))}</span><span class="acts">${acts}</span>
+    <span class="sub">${stale}<span class="s">${what}</span>${meter}${ctx ? `<span>${fmtCtx(ctx)}</span>` : ""}</span></button>`;
+}
 function renderSessions() {
+  computeNicks();
   // live first, then away (most recently seen first); away sessions stay addressable: messages wait for them
   const ps = [...state.presence].sort((a, b) => (b.live - a.live) || b.last_seen.localeCompare(a.last_seen));
-  const live = ps.filter((p) => p.live);
-  const recent = ps.filter((p) => p.live || Date.now() - new Date(p.last_seen) < 3 * 86400e3);
-  $("#liveCount").textContent = `${live.length} live${ps.length > live.length ? ` · ${ps.length - live.length} away` : ""}`;
-  const status = (p) => p.live ? (p.channel ? esc(p.status || "") : "no push")
-    : `away ${ago(p.last_seen).replace(" ago", "")}${p.waiting ? ` · <b>${p.waiting} waiting</b>` : ""}`;
-  $("#sessions").innerHTML = ps.length ? ps.map((p) => `<div class="sess${p.live ? "" : " off"}" data-h="${esc(p.handle)}" title="${esc(p.cwd || "")}${p.live ? "" : " · messages to it are held until it's back"}">
-      <span class="dot ${p.live ? "on" : ""}"></span><span class="h">${esc(p.handle)}${p.usage && p.usage.context ? ` <span class="st">· ${fmtCtx(p.usage.context)} ctx</span>` : ""}</span>
-      ${p.handoff_at ? `<button class="ho" data-ho="${esc(p.handle)}" title="handoff note written ${esc(ago(p.handoff_at))} (continuity)">handoff</button>` : ""}
-      ${p.bridge && p.live ? `<a class="rc" href="https://claude.ai/code/${encodeURIComponent(p.bridge)}" target="_blank" rel="noopener" title="open this session in the Claude app (Remote Control): /compact, /context, /model work there">open ↗</a>` : "<span></span>"}
-      <span class="st">${p.live && state.client_build && p.build !== state.client_build ? `<span class="stale" title="running older orchestra code (${esc(p.build || "pre-build")}); in that session run /mcp reconnect orchestra (works from the Claude app too)">reconnect</span> ` : ""}${status(p)}</span></div>`).join("")
+  const live = ps.filter((p) => p.live), away = ps.filter((p) => !p.live);
+  $("#liveCount").textContent = `${live.length} live`;
+  $("#sessions").innerHTML = ps.length
+    ? live.map(rosterRow).join("") + (away.length ? `<div class="rgroup">away</div>` + away.map(rosterRow).join("") : "")
     : `<div class="empty">no sessions have checked in</div>`;
-  document.querySelectorAll(".sess").forEach((el) => (el.onclick = (e) => {
-    if (e.target.closest("a")) return;
-    const ho = e.target.closest(".ho"); if (ho) return openReader(ho.dataset.ho);
-    setTo("@" + el.dataset.h); focusCompose();
-  }));
-  $("#toChips").innerHTML = [`<button class="chip" data-to="@all">@all</button>`]
-    .concat(recent.map((p) => {
-      const cls = !p.live ? " away" : p.channel ? "" : " np";
-      const title = !p.live ? "away: this will be held and delivered when it's back" : p.channel ? "" : "no push lane: launched without the channel flag";
-      return `<button class="chip${cls}" data-to="@${esc(p.handle)}"${title ? ` title="${title}"` : ""}>@${esc(p.handle)}${p.live ? "" : " · away"}</button>`;
-    })).join("");
-  document.querySelectorAll("#toChips .chip").forEach((c) => (c.onclick = () => toggleTo(c.dataset.to)));
   paintCompose();
   const pushOk = state.push && state.push.subscriptions > 0;
-  $("#meta").innerHTML = `<span>${live.length} live</span><span class="wide"> · bus #${state.head}</span><span> · push ${pushOk ? "on" : "off"}</span>`;
+  $("#meta").innerHTML = `<span>${live.length} live</span><span class="wide"> · bus #${state.head}</span><span class="wide"> · push ${pushOk ? "on" : "off"}</span>`;
 }
-const fmtCtx = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "K" : String(n);
+$("#roster").addEventListener("click", (e) => {
+  if (e.target.closest("a")) return;
+  const ho = e.target.closest("[data-ho]"); if (ho) { e.stopPropagation(); return openReader(ho.dataset.ho); }
+  const w = e.target.closest(".who"); if (!w) return;
+  toggleTo(w.dataset.to);
+});
 const toList = () => (compose.to === "@all" ? [] : compose.to.split(","));
+function setTo(to) { compose.to = to; paintCompose(); }
+// Multi-select: each named session gets the message as a direct one; "everyone" is exclusive.
+function toggleTo(to) {
+  if (to === "@all") return setTo("@all");
+  const cur = toList();
+  const next = cur.includes(to) ? cur.filter((x) => x !== to) : [...cur, to];
+  setTo(next.length ? next.join(",") : "@all");
+}
+function addTo(to) { if (!toList().includes(to)) setTo([...toList(), to].join(",")); }
+const toLabel = () => nickTo(compose.to);
+const toShort = () => { const n = toList().length; return n > 1 ? `${n} sessions` : toLabel(); };
+function setKind(k) { compose.kind = k; paintCompose(); }
+function paintCompose() {
+  document.querySelectorAll("#roster .who").forEach((w) => w.setAttribute("aria-pressed", w.dataset.to === "@all" ? compose.to === "@all" : toList().includes(w.dataset.to)));
+  $("#toLine").innerHTML = compose.to === "@all"
+    ? `<span class="tochip all">everyone</span><span class="tohint">${narrow() ? "pick sessions in Sessions" : "pick sessions on the left"}</span>`
+    : toList().map((r) => `<span class="tochip" title="${esc(r)}"><span>${esc(nick(r.slice(1)))}</span><button data-rm="${esc(r)}" title="remove" aria-label="remove ${esc(r)}">×</button></span>`).join("");
+  document.querySelectorAll("#kindSeg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.kind === compose.kind));
+  $("#kindHint").textContent = KIND_HINT[compose.kind];
+  $("#sendTo").textContent = `${compose.kind} → ${toShort()}`;
+  $("#writeTo").textContent = `→ ${toShort()}`;
+  $("#tabTo").textContent = toList().length ? `(${toList().length})` : "";
+  // the selection is already visible (inverted rows, the chips); the buttons just say which way
+  $("#haltBtn").textContent = "⏸ halt"; $("#haltBtn").title = `halt ${toLabel()}`;
+  $("#resumeBtn").textContent = "▶ resume"; $("#resumeBtn").title = `resume ${toLabel()}`;
+}
+$("#toLine").addEventListener("click", (e) => { const b = e.target.closest("[data-rm]"); if (b) toggleTo(b.dataset.rm); });
+function focusCompose() {
+  if (narrow()) showTab("feed");
+  $("#msg").focus({ preventScroll: true });
+}
+document.querySelectorAll("#kindSeg button").forEach((b) => (b.onclick = () => setKind(b.dataset.kind)));
+function growMsg() { const m = $("#msg"); m.style.height = "auto"; m.style.height = Math.min(m.scrollHeight + 2, innerHeight * 0.4) + "px"; }
+async function send() {
+  const body = $("#msg").value.trim(); if (!body) { $("#msg").focus(); return toast("nothing to send"); }
+  $("#sendBtn").disabled = true;
+  try { await post({ to: compose.to, kind: compose.kind, body }); $("#msg").value = ""; growMsg(); store("orc-draft"); const away = state.presence.filter((p) => toList().includes("@" + p.handle) && !p.live).map((p) => nick(p.handle));
+    toast(away.length ? `${compose.kind} sent → ${toLabel()} · held for ${away.join(", ")} until back` : `${compose.kind} sent → ${toLabel()}`); }
+  catch (e) { toast("failed: " + e.message); }
+  finally { $("#sendBtn").disabled = false; }
+}
+async function haltSel() {
+  const why = prompt(`Halt ${toLabel()}? Reason (optional):`, ""); if (why === null) return;
+  try { await post({ to: compose.to, kind: "halt", body: why }); toast(`halt → ${toLabel()}`); } catch (e) { toast(e.message); }
+}
+async function resumeSel() {
+  const msg = prompt(`Resume ${toLabel()}. Message (optional):`, ""); if (msg === null) return;
+  try { await post({ to: compose.to, kind: "resume", body: msg }); toast(`resume → ${toLabel()}`); } catch (e) { toast(e.message); }
+}
+$("#msg").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); });
+$("#msg").addEventListener("input", () => { store("orc-draft", $("#msg").value); growMsg(); });
+
 // ---- handoff reader: continuity's notes, rendered from escaped markdown ----
 let reader = { handle: null, notes: [], i: 0 };
 function mdLite(src) {
@@ -761,65 +950,20 @@ async function openReader(handle) {
   try {
     const d = await api(`/api/handoffs/${encodeURIComponent(handle)}`);
     if (!d.notes.length) return toast("no handoff notes yet");
-    reader = { handle, notes: d.notes, i: 0 }; paintReader(); $("#reader").hidden = false;
+    reader = { handle, notes: d.notes, i: 0 }; paintReader(); $("#reader").hidden = false; $("#reader").scrollTop = 0;
+    history.pushState({ reader: 1 }, "");  // the phone's back button closes it
   } catch (e) { toast("couldn't load: " + e.message); }
 }
 function paintReader() {
   const n = reader.notes[reader.i];
-  $("#rdMeta").textContent = `${reader.handle} · ${n.why || "note"} · ${ago(n.written_at)} · ${reader.i + 1}/${reader.notes.length}`;
+  $("#rdMeta").textContent = `${nick(reader.handle)} · ${n.why || "note"} · ${ago(n.written_at)} · ${reader.i + 1}/${reader.notes.length}`;
   $("#rdNote").innerHTML = mdLite(n.text);
   $("#rdOlder").disabled = reader.i >= reader.notes.length - 1; $("#rdNewer").disabled = reader.i === 0;
 }
-function stepReader(d) { reader.i = Math.max(0, Math.min(reader.notes.length - 1, reader.i + d)); paintReader(); }
-function closeReader() { $("#reader").hidden = true; }
+function stepReader(d) { reader.i = Math.max(0, Math.min(reader.notes.length - 1, reader.i + d)); paintReader(); $("#reader").scrollTop = 0; }
+function closeReader() { if ($("#reader").hidden) return; $("#reader").hidden = true; if (history.state && history.state.reader) history.back(); }
+window.addEventListener("popstate", () => { if (!$("#reader").hidden) $("#reader").hidden = true; });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#reader").hidden) closeReader(); });
-function setTo(to) { compose.to = to; paintCompose(); }
-// Pills are multi-select: each named session gets the message as a direct one; @all is exclusive.
-function toggleTo(to) {
-  if (to === "@all") return setTo("@all");
-  const cur = toList();
-  const next = cur.includes(to) ? cur.filter((x) => x !== to) : [...cur, to];
-  setTo(next.length ? next.join(",") : "@all");
-}
-const toLabel = () => compose.to.split(",").join(", ");
-function setKind(k) { compose.kind = k; paintCompose(); }
-function paintCompose() {
-  const chips = [...document.querySelectorAll("#toChips .chip")];
-  if (chips.length && compose.to !== "@all") {  // drop recipients that went away entirely
-    const known = new Set(chips.map((c) => c.dataset.to));
-    const kept = toList().filter((t) => known.has(t));
-    compose.to = kept.length ? kept.join(",") : "@all";
-  }
-  chips.forEach((c) => c.setAttribute("aria-pressed", c.dataset.to === "@all" ? compose.to === "@all" : toList().includes(c.dataset.to)));
-  document.querySelectorAll("#kindSeg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.kind === compose.kind));
-  $("#kindHint").textContent = KIND_HINT[compose.kind];
-  $("#sendTo").textContent = `${compose.kind} → ${toLabel()}`;
-  $("#haltBtn").textContent = `⏸ halt ${toList().length > 1 ? toList().length + " sessions" : compose.to}`;
-  $("#resumeBtn").textContent = `▶ resume ${toList().length > 1 ? toList().length + " sessions" : compose.to}`;
-}
-function focusCompose() {
-  if (matchMedia("(max-width: 820px)").matches) showTab("side");
-  $("#msg").focus();
-}
-document.querySelectorAll("#kindSeg button").forEach((b) => (b.onclick = () => setKind(b.dataset.kind)));
-async function send() {
-  const body = $("#msg").value.trim(); if (!body) { $("#msg").focus(); return toast("nothing to send"); }
-  $("#sendBtn").disabled = true;
-  try { await post({ to: compose.to, kind: compose.kind, body }); $("#msg").value = ""; store("orc-draft"); const away = state.presence.filter((p) => toList().includes("@" + p.handle) && !p.live).map((p) => "@" + p.handle);
-    toast(away.length ? `${compose.kind} sent → ${toLabel()} · queued for ${away.join(", ")} until back` : `${compose.kind} sent → ${toLabel()}`); }
-  catch (e) { toast("failed: " + e.message); }
-  finally { $("#sendBtn").disabled = false; }
-}
-async function haltSel() {
-  const why = prompt(`Halt ${toLabel()}? Reason (optional):`, ""); if (why === null) return;
-  try { await post({ to: compose.to, kind: "halt", body: why }); toast(`halt → ${toLabel()}`); } catch (e) { toast(e.message); }
-}
-async function resumeSel() {
-  const msg = prompt(`Resume ${toLabel()}. Message (optional):`, ""); if (msg === null) return;
-  try { await post({ to: compose.to, kind: "resume", body: msg }); toast(`resume → ${toLabel()}`); } catch (e) { toast(e.message); }
-}
-$("#msg").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); });
-$("#msg").addEventListener("input", () => store("orc-draft", $("#msg").value));
 
 // ---- push ----
 function b64ToBytes(b64) { const p = "=".repeat((4 - (b64.length % 4)) % 4); const raw = atob((b64 + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(raw, (c) => c.charCodeAt(0)); }
@@ -846,6 +990,15 @@ async function testPush() { try { const r = await api("/api/push/test", { method
 
 // ---- live ----
 async function refresh() { state = await api("/api/state"); pubKey = state.push && state.push.public_key; renderInbox(); keepFocus(renderSessions); }
+// A burst of events asks for one state fetch, not one each.
+let refreshTimer = null, refreshing = false;
+function refreshSoon() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(async () => {
+    if (refreshing) return refreshSoon();
+    refreshing = true; try { await refresh(); } catch {} finally { refreshing = false; }
+  }, 300);
+}
 function connect() {
   if (es) es.close();
   const after = events.length ? events[events.length - 1].seq : state.head;
@@ -853,12 +1006,15 @@ function connect() {
   es.addEventListener("bus", (m) => {
     const e = JSON.parse(m.data);
     if (events.length && e.seq <= events[events.length - 1].seq) return;
-    events.push(e); if (events.length > 1000) events.splice(0, events.length - 1000); prependEvent(e);
-    if (["ask", "request", "note", "answer", "ack", "defaulted", "withdraw", "reply"].includes(e.kind)) refresh();
+    events.push(e); if (events.length > 5000) events.splice(0, events.length - 5000);
+    if (e.from && !(e.from in nicks) && e.from !== OP()) computeNicks();
+    prependEvent(e);
+    if (["ask", "request", "note", "answer", "ack", "defaulted", "withdraw", "reply"].includes(e.kind)) refreshSoon();
     else state.head = e.seq;
   });
   es.onopen = () => $("#live").classList.add("on");
-  es.onerror = () => $("#live").classList.remove("on");
+  // reconnect from the newest event we hold (the browser's own retry would replay from page load)
+  es.onerror = () => { $("#live").classList.remove("on"); es.close(); clearTimeout(connect.t); connect.t = setTimeout(connect, 3000); };
 }
 function flashHash() {
   const q = location.hash.match(/q=([\w-]+)/);  // permalinks: /m/<id> redirects to /#q=<id>
@@ -872,7 +1028,16 @@ function showTab(id) {
   document.querySelectorAll("nav.tabs button").forEach((x) => x.classList.toggle("active", x.dataset.tab === id));
   if (id === "telem") return setView("telem");
   setView("desk");
-  document.querySelectorAll("main > section, main > aside").forEach((s) => s.classList.toggle("active", s.id === id));
+  // each pane keeps its own scroll position across tab switches
+  document.querySelectorAll("main > .pane").forEach((s) => {
+    const sc = s.id === "feed" ? $("#feedScroll") : s;
+    if (s.classList.contains("active")) s.dataset.y = sc.scrollTop;
+    s.classList.toggle("active", s.id === id);
+  });
+  const p = document.getElementById(id); if (!p) return;
+  const sc = id === "feed" ? $("#feedScroll") : p;
+  if (p.dataset.y) sc.scrollTop = +p.dataset.y;
+  if (id === "feed") markLong($("#events"));
 }
 function setView(v) {
   const telem = v === "telem";
@@ -882,7 +1047,7 @@ function setView(v) {
 }
 function toggleView() {
   const toTelem = $("#telem").hidden;
-  if (matchMedia("(max-width: 820px)").matches) return showTab(toTelem ? "telem" : "inbox");
+  if (narrow()) return showTab(toTelem ? "telem" : "inbox");
   setView(toTelem ? "telem" : "desk");
 }
 document.querySelectorAll("nav.tabs button").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
@@ -900,13 +1065,22 @@ $("#inbox").addEventListener("keydown", (e) => {
   else if (ta.dataset.redraft) replyTo(ta.dataset.redraft, ta.dataset.to);
 });
 $("#inbox").addEventListener("focusout", () => setTimeout(() => { if (inboxStale && !typingInInbox() && state) renderInbox(); }, 0));
+let lastNarrow = null;
+window.addEventListener("resize", () => {
+  const n = narrow(); if (n === lastNarrow) return; lastNarrow = n;
+  if (!n) document.querySelectorAll("main > .pane").forEach((s) => s.classList.remove("active"));
+  else if (!document.querySelector("main > .pane.active")) showTab("inbox");
+  if (state) paintCompose();
+});
 
 async function boot() {
   try { await refresh(); } catch { return; }
   $("#login").hidden = true; $("#app").hidden = false;
-  const draft = recall("orc-draft"); if (draft && !$("#msg").value) $("#msg").value = draft;
-  const d = await api(`/api/events?after=${Math.max(0, state.head - 300)}&limit=300`);
-  events = d.events; renderFeed(); connect(); updatePushBtn(); flashHash();
+  const draft = recall("orc-draft"); if (draft && !$("#msg").value) { $("#msg").value = draft; growMsg(); }
+  const d = await api(`/api/events?after=${Math.max(0, state.head - 2 * PAGE)}&limit=${2 * PAGE}`);
+  events = d.events; feedExhausted = !events.length || events[0].seq <= 1;
+  computeNicks(); renderSessions(); renderInboxNow(); renderFeed(); connect(); updatePushBtn(); flashHash();
+  lastNarrow = narrow(); if (!lastNarrow) document.querySelectorAll("main > .pane").forEach((s) => s.classList.remove("active"));
   if ("serviceWorker" in navigator) swReg().catch(() => {});
 }
 applyTheme();
