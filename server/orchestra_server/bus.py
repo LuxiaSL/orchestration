@@ -129,10 +129,15 @@ class Bus:
         if to == "@all":
             return to
         h = to[1:]
-        known = set(self.presence) | {self.operator}
-        if h in known:
-            return to
-        hits = [k for k in known if k.startswith(h)]
+        for _ in range(8):  # follow renames: a message to an old handle reaches the session's current one
+            p = self.presence.get(h)
+            if p is None or not p.renamed_to:
+                break
+            h = p.renamed_to
+        current = {k for k, p in self.presence.items() if not p.renamed_to} | {self.operator}
+        if h in current or h in self.presence:
+            return f"@{h}"
+        hits = [k for k in current if k.startswith(h)]
         return f"@{hits[0]}" if len(hits) == 1 else to
 
     def excerpt(self, ref: str | None, n: int = 120) -> str | None:
@@ -244,9 +249,18 @@ class Bus:
         data = p.model_dump()
         if data.get("cursor") is None and prev is not None:
             data["cursor"] = prev.cursor  # an older client that doesn't report it keeps the last known one
-        pres = Presence(**data, last_seen=now())
-        self.presence[p.handle] = pres
-        self.save_presence(force=prev is None)
+        renamed_from = [h for h in (prev.renamed_from if prev else [])]
+        # A session id seen under another handle means the session was renamed: link the two.
+        if p.session_id:
+            for h, other in self.presence.items():
+                if h != p.handle and other.session_id == p.session_id and not other.renamed_to:
+                    other.renamed_to = p.handle
+                    renamed_from += [x for x in [h, *other.renamed_from] if x not in renamed_from and x != p.handle]
+                    if data.get("cursor") is None:
+                        data["cursor"] = other.cursor
+        pres = Presence(**data, last_seen=now(), renamed_from=renamed_from)
+        self.presence[p.handle] = pres  # a fresh entry: an old name back in use is current again
+        self.save_presence(force=prev is None or bool(renamed_from and not (prev and prev.renamed_from)))
         return pres
 
     def cursor_for(self, handle: str) -> int | None:
@@ -265,6 +279,8 @@ class Bus:
         cutoff = now().timestamp() - PRESENCE_STALE_S
         out = []
         for p in sorted(self.presence.values(), key=lambda p: p.handle):
+            if p.renamed_to:
+                continue  # shown under its current name (which lists renamed_from)
             # usage is telemetry and the bridge id opens the session: both are the operator's to see
             d = p.model_dump(mode="json", exclude=None if operator_view else {"usage", "bridge"})
             d["live"] = p.last_seen.timestamp() >= cutoff

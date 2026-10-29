@@ -304,3 +304,35 @@ def test_excerpts_short_addresses_hints_permalinks(client):
     assert r.status_code == 403 and "kind='reply'" in r.json()["detail"]
     pl = client.get(f"/m/{note['id']}", follow_redirects=False)
     assert pl.status_code == 302 and pl.headers["location"] == f"/#q={note['id']}"
+
+
+def test_rename_links_handles_and_redirects(client):
+    client.post("/api/presence", headers=AGENT, json={"handle": "heimdall-82", "session_id": "sid-h", "cursor": 3})
+    client.post("/api/presence", headers=AGENT, json={"handle": "heimdall-ops", "session_id": "sid-h"})
+    pres = client.get("/api/state", headers=OP).json()["presence"]
+    assert [p["handle"] for p in pres] == ["heimdall-ops"] and pres[0]["renamed_from"] == ["heimdall-82"]
+    info = client.get("/api/presence/heimdall-82", headers=AGENT).json()
+    assert info["renamed_to"] == "heimdall-ops"
+    assert client.get("/api/presence/heimdall-ops", headers=AGENT).json()["cursor"] == 3  # cursor carried over
+    ev = client.post("/api/events", headers=OP, json={"from": "ada", "to": "@heimdall-82", "kind": "notice", "body": "hi"}).json()
+    assert ev["to"] == "@heimdall-ops"
+    # a prefix only matches current names
+    assert client.post("/api/events", headers=OP, json={"from": "ada", "to": "@heimdall", "kind": "notice", "body": "x"}).json()["to"] == "@heimdall-ops"
+
+
+def test_rename_back_to_old_name(client):
+    client.post("/api/presence", headers=AGENT, json={"handle": "a-one", "session_id": "s"})
+    client.post("/api/presence", headers=AGENT, json={"handle": "b-two", "session_id": "s"})
+    client.post("/api/presence", headers=AGENT, json={"handle": "a-one", "session_id": "s"})
+    pres = client.get("/api/state", headers=OP).json()["presence"]
+    assert [p["handle"] for p in pres] == ["a-one"]
+    assert client.post("/api/events", headers=OP, json={"from": "ada", "to": "@b-two", "kind": "notice", "body": "x"}).json()["to"] == "@a-one"
+
+
+def test_list_my_open_threads(client):
+    a = client.post("/api/events", headers=AGENT, json={"from": "pleroma", "to": "@ada", "kind": "request", "body": "repo name?\nmore"}).json()
+    b = client.post("/api/events", headers=AGENT, json={"from": "pleroma", "to": "@ada", "kind": "note", "body": "fyi"}).json()
+    client.post("/api/events", headers=OP, json={"from": "ada", "kind": "ack", "ref": b["id"]})
+    ts = client.get("/api/threads", params={"opened_by": "pleroma"}, headers=AGENT).json()["threads"]
+    assert [t["id"] for t in ts] == [a["id"]] and ts[0]["first_line"] == "repo name?"
+    assert len(client.get("/api/threads", params={"opened_by": "pleroma", "status": "any"}, headers=AGENT).json()["threads"]) == 2

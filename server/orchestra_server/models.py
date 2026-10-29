@@ -190,6 +190,8 @@ class PresenceIn(BaseModel):
 
 class Presence(PresenceIn):
     last_seen: datetime
+    renamed_to: str | None = None  # this handle's session now goes by another name
+    renamed_from: list[str] = Field(default_factory=list)  # earlier handles of this session
 
 
 class LoginIn(BaseModel):

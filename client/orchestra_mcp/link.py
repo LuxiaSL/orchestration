@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import secrets
 import sys
 from collections.abc import Awaitable, Callable
@@ -83,6 +84,16 @@ def is_for_me(ev: dict, me: str, operator: str = "operator") -> bool:
     return False
 
 
+_ID_RE = re.compile(r"\b[amnr][0-9a-f]{6}\b")
+
+
+def mention_hint(ev: dict) -> str:
+    """Point at bus ids a message mentions, so 'read n3a2e52' becomes one get() away."""
+    own = {ev.get("id"), ev.get("ref")}
+    ids = [i for i in dict.fromkeys(_ID_RE.findall(ev.get("body") or "")) if i not in own][:6]
+    return f"\n(mentions {', '.join(ids)}: get(id) reads one in full)" if ids else ""
+
+
 def _one_line(text: str | None, n: int) -> str:
     """Collapse whitespace so a multi-line body can't break a list it's quoted in."""
     flat = " ".join((text or "").split())
@@ -148,6 +159,7 @@ class LocalState:
     root: Path
     cursor: int | None = None
     read_cursor: int = 0
+    handles: list[str] = field(default_factory=list)  # every handle this session has gone by
     asks: dict[str, OpenAsk] = field(default_factory=dict)  # by client_id
 
     @classmethod
@@ -161,6 +173,7 @@ class LocalState:
                 d = json.loads(f.read_text())
                 st.cursor = d.get("cursor")
                 st.read_cursor = d.get("read_cursor", 0)
+                st.handles = list(d.get("handles", []))
                 st.asks = {k: OpenAsk(**v) for k, v in d.get("asks", {}).items()}
             except (OSError, json.JSONDecodeError, TypeError) as exc:
                 print(f"orchestra-mcp: local state unreadable ({exc}); starting fresh", file=sys.stderr)
@@ -169,7 +182,7 @@ class LocalState:
     def save(self) -> None:
         tmp = self.root / "state.json.tmp"
         tmp.write_text(json.dumps({
-            "cursor": self.cursor, "read_cursor": self.read_cursor,
+            "cursor": self.cursor, "read_cursor": self.read_cursor, "handles": self.handles[-10:],
             "asks": {k: vars(v) for k, v in self.asks.items()},
         }, indent=1))
         tmp.replace(self.root / "state.json")
@@ -431,25 +444,37 @@ class Link:
         )
 
     async def _push_event(self, ev: dict) -> None:
-        await self._push(render(ev, self.operator), {
+        digest = ev.get("to") == "@all" and ev.get("from") != self.operator and ev.get("kind") in ("info", "request")
+        await self._push(render(ev, self.operator) + ("" if digest else mention_hint(ev)), {
             "source": "orchestra", "kind": str(ev.get("kind")), "from": str(ev.get("from")),
             "id": str(ev.get("id")), "ref": str(ev.get("ref") or ""), "seq": str(ev.get("seq")),
         })
 
+    def my_handles(self) -> set[str]:
+        """The current handle plus earlier ones: after a rename, mail to the old name is still ours."""
+        cur = self.me.handle
+        if cur not in self.state.handles:
+            self.state.handles.append(cur)
+            self.state.save()
+        return set(self.state.handles[-10:]) | {cur}
+
+    def _mine(self, ev: dict) -> bool:
+        return any(is_for_me(ev, h, self.operator) for h in self.my_handles()) and ev.get("from") not in self.my_handles()
+
     async def _on_event(self, ev: dict, hold: list[dict] | None = None) -> None:
-        me = self.me.handle
         self.state.cursor = max(self.state.cursor or 0, int(ev.get("seq", 0)))
         if ev.get("kind") in ("answer", "defaulted", "ack", "withdraw"):
             for a in self.state.asks.values():
                 if a.id and a.id == ev.get("ref"):
                     a.resolved = ev.get("kind")
             self.state.asks = {k: v for k, v in self.state.asks.items() if v.resolved is None}
-        if ev.get("kind") == "halt" and is_for_me(ev, me, self.operator):
+        mine = self._mine(ev)
+        if ev.get("kind") == "halt" and mine:
             self.halted = ev
-        if ev.get("kind") == "resume" and is_for_me(ev, me, self.operator):
+        if ev.get("kind") == "resume" and mine:
             self.halted = None
         self.state.save()
-        if is_for_me(ev, me, self.operator):
+        if mine:
             if hold is not None:
                 hold.append(ev)
             else:

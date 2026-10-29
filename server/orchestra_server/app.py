@@ -228,6 +228,16 @@ def create_app(settings: Settings) -> FastAPI:
         evs = bus.search(q[:200], limit=min(max(limit, 1), 1000))
         return {"q": q, "count": len(evs), "events": [e.wire() for e in evs]}
 
+    @app.get("/api/threads")
+    async def list_threads(opened_by: str, status: str = "open", _: Principal = Depends(principal)) -> dict:
+        """A handle's own asks/requests/notes, e.g. what a session is still waiting on."""
+        ts = [t for t in bus.threads.values() if t.from_ == opened_by and (status == "any" or t.status == status)]
+        ts.sort(key=lambda t: t.ts)
+        return {"threads": [{"id": t.id, "kind": t.kind, "to": t.to, "status": t.status, "ts": t.ts.isoformat(),
+                             "deadline": t.deadline.isoformat() if t.deadline else None,
+                             "first_line": (t.body.strip().splitlines() or [""])[0][:120], "replies": len(t.answers)}
+                            for t in ts[-50:]]}
+
     @app.get("/api/threads/{thread_id}")
     async def get_thread(thread_id: str, _: Principal = Depends(principal)) -> dict:
         t = bus.threads.get(thread_id)
@@ -258,7 +268,8 @@ def create_app(settings: Settings) -> FastAPI:
         p = bus.presence.get(handle)
         if p is None:
             raise HTTPException(404, "never seen")
-        return {"handle": handle, "cursor": p.cursor, "last_seen": p.last_seen.isoformat()}
+        return {"handle": handle, "cursor": p.cursor, "last_seen": p.last_seen.isoformat(),
+                "renamed_to": p.renamed_to, "renamed_from": p.renamed_from}
 
     @app.get("/api/telemetry")
     async def telemetry(hours: float = 24, _: Principal = Depends(operator_only)) -> dict:

@@ -91,3 +91,18 @@ def test_catchup_summary_keeps_one_line_per_message():
     asyncio.run(go())
     lines = got[0].splitlines()
     assert sum(1 for l in lines if l.startswith("- #")) == 7 and not any(l.startswith("- Now") for l in lines)
+
+
+def test_mention_hint_and_old_handles(tmp_path, monkeypatch):
+    from orchestra_mcp import link as L
+    h = L.mention_hint({"id": "m111111", "ref": "r222222", "body": "read n3a2e52 and m4958c9, not r222222"})
+    assert "n3a2e52, m4958c9" in h and "r222222" not in h
+    assert L.mention_hint({"body": "no ids here, just 'abcdefg'"}) == ""
+    monkeypatch.setattr(L, "STATE_ROOT", tmp_path)
+    monkeypatch.setenv("ORCHESTRA_HANDLE", "heimdall-82")
+    lk = L.Link(None, None)
+    assert lk.my_handles() == {"heimdall-82"}
+    monkeypatch.setenv("ORCHESTRA_HANDLE", "heimdall-ops")
+    assert lk.my_handles() == {"heimdall-82", "heimdall-ops"}
+    assert lk._mine({"from": "luxia", "to": "@heimdall-82", "kind": "notice"})
+    assert not lk._mine({"from": "heimdall-82", "to": "@all", "kind": "info"})  # my own old-name posts aren't pushed to me

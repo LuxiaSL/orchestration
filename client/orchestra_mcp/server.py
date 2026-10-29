@@ -153,6 +153,7 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         ident = link.me
         return {
             "handle": ident.handle, "name": ident.name, "session_id": ident.session_id,
+            "renamed_from": [h for h in link.my_handles() if h != ident.handle] or None,
             "identity_source": ident.source, "bus": config.url if config else None,
             "config_error": config_error, "connected": link.connected, "last_error": link.last_error,
             "push_lane": link.notify is not None, "pushes_delivered": link.pushed,
@@ -160,7 +161,17 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
             "open_asks": [vars(a) for a in link.state.asks.values()],
             "spooled_posts": len(link.state.drain_spool()),
             "unread": await _unread(ident.handle) if config and link.connected else None,
+            "waiting_on": await _waiting_on(ident.handle) if config and link.connected else None,
         }
+
+    async def _waiting_on(me: str) -> list[str] | None:
+        """Your open asks/requests/notes, one line each."""
+        try:
+            ts = (await link.get("/api/threads", opened_by=me))["threads"]
+        except ToolError:
+            return None
+        return [f"{t['id']} {t['kind']} → {t['to']}" + (f" (default at {t['deadline'][11:16]}Z)" if t.get("deadline") else "")
+                + (f" · {t['replies']} replies" if t["replies"] else "") + f": {t['first_line']}" for t in ts]
 
     async def _unread(me: str) -> int | None:
         try:
@@ -176,8 +187,9 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         kind: Annotated[
             Literal["status", "info", "reply", "request", "answer", "withdraw"],
             Field(description="status=routine progress (never pushed); info=others should know now; "
-                              "request=question to a peer; answer=close a request addressed to you (needs ref); "
-                              "withdraw=retract your own ask/request (needs ref); reply=threaded comment (needs ref)."),
+                              "request=question to a peer; answer=close a request addressed to you, or one to @all (needs ref); "
+                              "withdraw=retract your own ask/request (needs ref); reply=threaded comment (needs ref). "
+                              "Answers and replies to a thread are routed to whoever opened it when you leave to='@all'."),
         ] = "status",
         topic: Annotated[str | None, Field(description="Optional short tag, e.g. 'api-v2'.")] = None,
         ref: Annotated[str | None, Field(description="Id of the message being answered/replied to.")] = None,
