@@ -40,7 +40,7 @@ Talking to {op} (pick the lightest that fits):
 
 Catching up: read() gives one line per event (not your own posts) from your cursor; get(id) for one in full; read(thread=id) for a request and its replies; read(topic=...) or since=... to narrow.
 
-After a compaction: recall_search(query) and recall_read(line) reach back into your own full transcript (local, never sent) for exact ids, paths, numbers and the user's own words that the summary dropped. mark(text) flags a moment (the user's exact words, a correction, the thread you're chasing) to be carried verbatim into the next handoff note.
+After a compaction: recall_search(query) and recall_read(line) reach back into your own full transcript (local, never sent) for exact ids, paths, numbers and the user's own words that the summary dropped. send_file(paths, note) hands the operator documents to read (markdown renders on their page); note_human/request_human/ask_human also take files=[paths]. mark(text) flags a moment (the user's exact words, a correction, the thread you're chasing) to be carried verbatim into the next handoff note.
 
 Talking to peers: post(to='@handle' or '@all'; a unique prefix like '@api' works for 'api-refactor'). Keep posts short (~600 chars), and link a file for detail. kind=status for routine progress (not pushed to anyone), info for things others should know now (pushed), request for a question to a peer (they answer with kind=answer, ref=<id>).
 
@@ -136,7 +136,10 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         """What a write returns: enough to cite and follow up, never an echo of the body."""
         if ev.get("queued"):
             return {"queued": True, "note": ev.get("note")}
-        return {k: ev[k] for k in ("id", "seq", "ts", "to") if k in ev}
+        out = {k: ev[k] for k in ("id", "seq", "ts", "to") if k in ev}
+        if ev.get("attachments"):  # so a sender can see its files went with it
+            out["files"] = [f'{a["name"]} ({a["size"]} bytes, sha256 {a["sha256"][:12]}…)' for a in ev["attachments"]]
+        return out
 
     def need_config() -> None:
         if config is None:
@@ -282,7 +285,7 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
 
     def _line(e: dict, full: bool) -> str | dict:
         if full:
-            keep = ("seq", "id", "ts", "from", "to", "kind", "topic", "ref", "body", "choice", "options", "default", "deadline")
+            keep = ("seq", "id", "ts", "from", "to", "kind", "topic", "ref", "body", "choice", "options", "default", "deadline", "attachments")
             d = {k: e[k] for k in keep if k in e}
             if len(d.get("body", "")) > 4000:
                 d["body"] = d["body"][:4000] + f"… [{len(e['body'])} chars; get('{e['id']}') for all]"
@@ -290,6 +293,7 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         first = ((e.get("body") or "").strip().splitlines() or [""])[0]
         first = first if len(first) <= 120 else first[:119] + "…"
         topic_ = f" #{e['topic']}" if e.get("topic") else ""
+        topic_ += "".join(f" 📎{a['name']}" for a in e.get("attachments") or [])
         ref_ = f" re {e['ref']}" if e.get("ref") else ""
         return f"#{e['seq']} {e['id']} {e['from']}→{e['to']} {e['kind']}{topic_}{ref_}: {first}" 
 
@@ -312,6 +316,17 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         """Something just for the human operator's eyes. Never blocks, needs no reply. To hand them a document
         to read (markdown renders on their page), pass its path in files."""
         return receipt(await _human("note", body, topic, files))
+
+    @server.tool()
+    async def send_file(
+        paths: Annotated[list[str], Field(min_length=1, max_length=8, description=FILES_DOC)],
+        note: Annotated[str, Field(description="A few lines on what it is and why they'd read it.")],
+        topic: str | None = None,
+    ) -> dict:
+        """Hand the operator documents to read on their page and phone: reports, plans, write-ups, results as
+        markdown (rendered), images, PDFs. Sent as a note with the files attached; the receipt lists them.
+        (Same as note_human(files=...).)"""
+        return receipt(await _human("note", note, topic, paths))
 
     @server.tool()
     async def request_human(
@@ -356,7 +371,7 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         out: dict = {"event": _line(hits[0], True)}
         try:
             t = await link.get(f"/api/threads/{id}")
-            out["thread"] = {k: t[k] for k in ("status", "resolution", "choice", "resolved_by", "resolved_at", "answers") if k in t}
+            out["thread"] = {k: t[k] for k in ("status", "resolution", "choice", "resolved_by", "resolved_at", "answers", "attachments") if k in t}
         except ToolError:
             pass  # not a thread
         return out

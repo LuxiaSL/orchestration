@@ -119,7 +119,7 @@ Two tools let a session keep what tends to get lost in a summary:
 
 ## Files for the operator
 
-`note_human`, `request_human` and `ask_human` take `files`: absolute paths of local files, up to 8 per message and 10 MB each. The page shows each one as a 📎 chip. Markdown renders (sanitized), images and PDFs open inline, and other text shows as text.
+`send_file(paths, note)` hands the operator documents, and `note_human`, `request_human` and `ask_human` also take `files`: absolute paths of local files, up to 8 per message and 10 MB each. The page shows each one as a 📎 chip. Markdown renders (sanitized), images and PDFs open inline, and other text shows as text.
 
 - **Where the bytes live:** the client uploads each file to the server's file store, outside the bus. The message on the bus carries only the name, size and sha256. Only the operator token can read a file.
 - **How long they stay:** a file stays while its message is open, for at most 7 days. Once the operator closes the message (answer, ack or take default), the file is kept for 24 hours more and then deleted. The record of its name and hash stays.
