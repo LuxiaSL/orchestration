@@ -358,3 +358,18 @@ def test_multi_address(client):
     assert st.waiting_for("trainer", 0) >= 1 and st.waiting_for("archive-desk", 0) == 0
     tel = client.get("/api/telemetry", params={"hours": 1}, headers=OP).json()
     assert {"from": "ada", "to": "@trainer", "count": 1} in tel["edges"]
+
+
+def test_handoffs_operator_only_and_bounded(client):
+    for i in range(7):
+        r = client.post("/api/handoffs", headers=AGENT, json={"handle": "trainer", "session_id": "s", "why": "before a manual compaction",
+                                                              "written_at": f"2026-10-29T04:0{i}:00Z", "text": f"## Where we are\nnote {i}"})
+        assert r.status_code == 200
+    assert client.get("/api/handoffs/trainer", headers=AGENT).status_code == 403
+    notes = client.get("/api/handoffs/trainer", headers=OP).json()["notes"]
+    assert len(notes) == 5 and notes[0]["text"].endswith("note 6")
+    client.post("/api/presence", headers=AGENT, json={"handle": "trainer"})
+    p = client.get("/api/state", headers=OP).json()["presence"][0]
+    assert p["handoff_at"].startswith("2026-10-29T04:06")
+    assert "handoff_at" not in client.get("/api/state", headers=AGENT).json()["presence"][0]
+    assert client.post("/api/handoffs", headers=OP, json={"handle": "trainer", "written_at": "2026-10-29T05:00:00Z", "text": "x"}).status_code == 403

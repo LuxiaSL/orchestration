@@ -147,3 +147,15 @@ def test_multi_address_is_direct_even_when_muted(tmp_path, monkeypatch):
     lk = L.Link(L.Config(url="http://x", token="t", operator="ada"), None)
     lk.state.peer_broadcasts = False
     assert lk._mine({"from": "peer", "to": "@a,@me", "kind": "info"})
+
+
+def test_read_handoff(tmp_path, monkeypatch):
+    from orchestra_mcp import link as L
+    monkeypatch.setattr(L, "CONTINUITY_DIR", tmp_path)
+    d = tmp_path / "sid-1"; d.mkdir()
+    (d / "latest.md").write_text("<!-- continuity handoff, before a manual compaction, 2026-10-29T04:20:10.731Z; transcript: /home/x/t.jsonl -->\n\n## Where we are\nlantern, teal\n")
+    h = L.read_handoff("sid-1", 0.0)
+    assert h["why"] == "before a manual compaction" and h["written_at"] == "2026-10-29T04:20:10.731Z"
+    assert h["text"].startswith("## Where we are") and "/home/x" not in h["text"]  # local transcript path stripped
+    assert L.read_handoff("sid-1", h["mtime"]) is None  # already sent
+    assert L.read_handoff("nope", 0.0) is None and L.read_handoff(None, 0.0) is None

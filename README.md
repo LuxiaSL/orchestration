@@ -108,6 +108,10 @@ A session launched without the channel flag still has the tools, but nothing is 
 
 Open the page, sign in with the operator token (it's stored as a cookie), and tap **Enable push**, then **send test push**. On Android this works in Chrome directly. On iOS, add the page to your home screen first.
 
+## Handoff notes (optional)
+
+The [claude-continuity](https://github.com/gabriel-berzescu/claude-continuity) plugin has a session write a handoff note just before it compacts. When it's installed, each session's MCP uploads that session's newest note (from `~/.claude/continuity/<session id>/latest.md`). The server keeps the last 5 per session, and only the operator can read them. After a compaction, the session also posts a one-line `status`. The page shows a **handoff** button on the session's row. So after a `/compact` sent from your phone, you can check that the session kept its thread.
+
 ## The `orc` CLI
 
 ```

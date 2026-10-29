@@ -98,6 +98,30 @@ def _client_build() -> str:
 
 CLIENT_BUILD = _client_build()
 
+CONTINUITY_DIR = Path(os.environ.get("ORCHESTRA_CONTINUITY_DIR")
+                      or Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")) / "continuity")
+_HANDOFF_HEADER = re.compile(r"^<!-- continuity handoff, (?P<why>[^,]*), (?P<at>[0-9TZ:.\-]+); transcript: [^\n]*-->\s*")
+
+
+def read_handoff(session_id: str | None, after_mtime: float) -> dict | None:
+    """The claude-continuity plugin's newest note for this session, if newer than `after_mtime`."""
+    if not session_id:
+        return None
+    f = CONTINUITY_DIR / session_id / "latest.md"
+    try:
+        mtime = f.stat().st_mtime
+        if mtime <= after_mtime:
+            return None
+        raw = f.read_text(errors="replace")
+    except OSError:
+        return None
+    m = _HANDOFF_HEADER.match(raw)
+    why = m.group("why").strip() if m else None
+    at = m.group("at") if m else datetime.fromtimestamp(mtime, UTC).isoformat()
+    text = raw[m.end():] if m else raw  # the header names a local transcript path: not needed upstream
+    return {"mtime": mtime, "why": why, "written_at": at, "text": text.strip()[:64_000]}
+
+
 _ID_RE = re.compile(r"\b[amnr][0-9a-f]{6}\b")
 
 
@@ -175,6 +199,7 @@ class LocalState:
     read_cursor: int = 0
     handles: list[str] = field(default_factory=list)  # every handle this session has gone by
     peer_broadcasts: bool = True  # push peers' @all info/request (off: read() them instead)
+    handoff_mtime: float = 0.0  # newest continuity note already sent to the operator
     asks: dict[str, OpenAsk] = field(default_factory=dict)  # by client_id
 
     @classmethod
@@ -190,6 +215,7 @@ class LocalState:
                 st.read_cursor = d.get("read_cursor", 0)
                 st.handles = list(d.get("handles", []))
                 st.peer_broadcasts = bool(d.get("peer_broadcasts", True))
+                st.handoff_mtime = float(d.get("handoff_mtime", 0.0))
                 st.asks = {k: OpenAsk(**v) for k, v in d.get("asks", {}).items()}
             except (OSError, json.JSONDecodeError, TypeError) as exc:
                 print(f"orchestra-mcp: local state unreadable ({exc}); starting fresh", file=sys.stderr)
@@ -199,7 +225,7 @@ class LocalState:
         tmp = self.root / "state.json.tmp"
         tmp.write_text(json.dumps({
             "cursor": self.cursor, "read_cursor": self.read_cursor, "handles": self.handles[-10:],
-            "peer_broadcasts": self.peer_broadcasts,
+            "peer_broadcasts": self.peer_broadcasts, "handoff_mtime": self.handoff_mtime,
             "asks": {k: vars(v) for k, v in self.asks.items()},
         }, indent=1))
         tmp.replace(self.root / "state.json")
@@ -512,6 +538,24 @@ class Link:
             else:
                 await self._push_event(ev)
 
+    async def _sync_handoff(self, ident: Identity) -> None:
+        """Send a new continuity note to the operator's page; after a compaction, say so on the bus."""
+        h = read_handoff(ident.session_id, self.state.handoff_mtime)
+        if h is None or not h["text"]:
+            return
+        r = await self.http().post("/api/handoffs", json={
+            "handle": ident.handle, "session_id": ident.session_id, "why": h["why"],
+            "written_at": h["written_at"], "text": h["text"]})
+        if r.status_code >= 400:
+            print(f"orchestra-mcp: handoff upload refused ({r.status_code}): {r.text[:200]}", file=sys.stderr)
+            return
+        self.state.handoff_mtime = h["mtime"]
+        self.state.save()
+        if h["why"] and "compaction" in h["why"]:
+            words = len(h["text"].split())
+            await self.post({"to": "@all", "kind": "status", "topic": "compaction",
+                             "body": f"{ident.handle}: compacted ({h['why'].replace('before a ', '')}); handoff note written, {words} words. The operator can read it on the page."})
+
     async def _beat_once(self) -> None:
         async with self._beat_lock:
             await self._beat_unlocked()
@@ -535,6 +579,10 @@ class Link:
             })
         except Exception:
             pass  # the stream loop owns connectivity reporting
+        try:
+            await self._sync_handoff(ident)
+        except Exception as exc:  # a note that can't be sent now is retried on the next beat
+            print(f"orchestra-mcp: handoff sync failed ({exc!r})", file=sys.stderr)
 
     async def _heartbeat_forever(self) -> None:
         while True:

@@ -184,7 +184,7 @@ aside#side { align-self: start; position: sticky; top: 72px; }
 .control .btn { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .sessions { margin-top: 22px; }
-.sess { display: grid; grid-template-columns: 14px 1fr auto auto; gap: 8px; align-items: center; padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: 14px; cursor: pointer; }
+.sess { display: grid; grid-template-columns: 14px 1fr auto auto auto; gap: 8px; align-items: center; padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: 14px; cursor: pointer; }
 .sess:hover { background: var(--surface2); }
 .sess .h { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sm .rc { display: inline-block; margin-top: 3px; font-weight: 400; }
@@ -200,6 +200,20 @@ aside#side { align-self: start; position: sticky; top: 72px; }
 #login .wordmark { font-size: 34px; }
 #login p { color: var(--muted); }
 #login .row { display: flex; gap: 8px; margin-top: 10px; }
+/* ---- handoff reader ---- */
+#reader { position: fixed; inset: 0; z-index: 25; background: color-mix(in srgb, var(--bg) 70%, transparent); display: flex; justify-content: center; align-items: flex-start; padding: 5vh 16px; overflow-y: auto; }
+#reader .pane { background: var(--surface); border: 2px solid var(--fg); max-width: 760px; width: 100%; padding: 18px 22px 24px; box-shadow: var(--shadow); }
+#reader .top { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; border-bottom: 1px solid var(--rule); padding-bottom: 8px; margin-bottom: 6px; }
+#reader .top h2 { font-size: 15px; letter-spacing: .12em; text-transform: uppercase; margin: 0; }
+#reader .top .meta { color: var(--muted); font-size: 13px; }
+#reader .top .spacer { flex: 1; }
+#reader .note h4 { font-size: 14px; letter-spacing: .1em; text-transform: uppercase; margin: 18px 0 6px; }
+#reader .note p, #reader .note li { line-height: 1.55; overflow-wrap: anywhere; }
+#reader .note ul { padding-left: 20px; margin: 4px 0; }
+#reader .note blockquote { margin: 6px 0; padding: 4px 12px; border-left: 3px solid var(--fg); background: var(--surface2); }
+#reader .note em { color: var(--muted); }
+.sess .ho { font-size: 12px; color: var(--muted); border: 1px solid var(--line); padding: 0 6px; background: transparent; cursor: pointer; white-space: nowrap; }
+.sess .ho:hover { color: var(--fg); border-color: var(--fg); }
 #toast { position: fixed; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 16px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100vw - 32px); z-index: 20; }
 #toast.show { opacity: 1; }
 
@@ -374,6 +388,11 @@ details.tv .scroll { max-height: 280px; overflow: auto; margin-top: 6px; }
   </div>
 </div>
 <div id="tip"></div>
+<div id="reader" hidden onclick="if (event.target === this) closeReader()"><div class="pane">
+  <div class="top"><h2>Handoff</h2><span class="meta" id="rdMeta"></span><span class="spacer"></span>
+    <button class="btn ghost" id="rdOlder" onclick="stepReader(1)">older</button><button class="btn ghost" id="rdNewer" onclick="stepReader(-1)">newer</button>
+    <button class="btn" onclick="closeReader()">close</button></div>
+  <div class="note" id="rdNote"></div></div></div>
 <div id="toast"></div>
 
 <script>
@@ -699,10 +718,15 @@ function renderSessions() {
     : `away ${ago(p.last_seen).replace(" ago", "")}${p.waiting ? ` · <b>${p.waiting} waiting</b>` : ""}`;
   $("#sessions").innerHTML = ps.length ? ps.map((p) => `<div class="sess${p.live ? "" : " off"}" data-h="${esc(p.handle)}" title="${esc(p.cwd || "")}${p.live ? "" : " · messages to it are held until it's back"}">
       <span class="dot ${p.live ? "on" : ""}"></span><span class="h">${esc(p.handle)}${p.usage && p.usage.context ? ` <span class="st">· ${fmtCtx(p.usage.context)} ctx</span>` : ""}</span>
+      ${p.handoff_at ? `<button class="ho" data-ho="${esc(p.handle)}" title="handoff note written ${esc(ago(p.handoff_at))} (continuity)">handoff</button>` : ""}
       ${p.bridge && p.live ? `<a class="rc" href="https://claude.ai/code/${encodeURIComponent(p.bridge)}" target="_blank" rel="noopener" title="open this session in the Claude app (Remote Control): /compact, /context, /model work there">open ↗</a>` : "<span></span>"}
       <span class="st">${p.live && state.client_build && p.build !== state.client_build ? `<span class="stale" title="running older orchestra code (${esc(p.build || "pre-build")}); in that session run /mcp reconnect orchestra (works from the Claude app too)">reconnect</span> ` : ""}${status(p)}</span></div>`).join("")
     : `<div class="empty">no sessions have checked in</div>`;
-  document.querySelectorAll(".sess").forEach((el) => (el.onclick = (e) => { if (e.target.closest("a")) return; setTo("@" + el.dataset.h); focusCompose(); }));
+  document.querySelectorAll(".sess").forEach((el) => (el.onclick = (e) => {
+    if (e.target.closest("a")) return;
+    const ho = e.target.closest(".ho"); if (ho) return openReader(ho.dataset.ho);
+    setTo("@" + el.dataset.h); focusCompose();
+  }));
   $("#toChips").innerHTML = [`<button class="chip" data-to="@all">@all</button>`]
     .concat(recent.map((p) => {
       const cls = !p.live ? " away" : p.channel ? "" : " np";
@@ -716,6 +740,39 @@ function renderSessions() {
 }
 const fmtCtx = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "K" : String(n);
 const toList = () => (compose.to === "@all" ? [] : compose.to.split(","));
+// ---- handoff reader: continuity's notes, rendered from escaped markdown ----
+let reader = { handle: null, notes: [], i: 0 };
+function mdLite(src) {
+  const inline = (t) => esc(t).replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>").replace(/`([^`]+)`/g, "<code>$1</code>");
+  const out = []; let list = false;
+  for (const raw of src.split("\n")) {
+    const line = raw.trimEnd();
+    const li = /^\s*[-*] (.*)$/.exec(line);
+    if (!li && list) { out.push("</ul>"); list = false; }
+    if (/^#{1,3} /.test(line)) out.push(`<h4>${inline(line.replace(/^#+ /, ""))}</h4>`);
+    else if (li) { if (!list) { out.push("<ul>"); list = true; } out.push(`<li>${inline(li[1])}</li>`); }
+    else if (/^> ?/.test(line)) out.push(`<blockquote>${inline(line.replace(/^> ?/, ""))}</blockquote>`);
+    else if (line.trim()) out.push(`<p>${inline(line)}</p>`);
+  }
+  if (list) out.push("</ul>");
+  return out.join("");
+}
+async function openReader(handle) {
+  try {
+    const d = await api(`/api/handoffs/${encodeURIComponent(handle)}`);
+    if (!d.notes.length) return toast("no handoff notes yet");
+    reader = { handle, notes: d.notes, i: 0 }; paintReader(); $("#reader").hidden = false;
+  } catch (e) { toast("couldn't load: " + e.message); }
+}
+function paintReader() {
+  const n = reader.notes[reader.i];
+  $("#rdMeta").textContent = `${reader.handle} · ${n.why || "note"} · ${ago(n.written_at)} · ${reader.i + 1}/${reader.notes.length}`;
+  $("#rdNote").innerHTML = mdLite(n.text);
+  $("#rdOlder").disabled = reader.i >= reader.notes.length - 1; $("#rdNewer").disabled = reader.i === 0;
+}
+function stepReader(d) { reader.i = Math.max(0, Math.min(reader.notes.length - 1, reader.i + d)); paintReader(); }
+function closeReader() { $("#reader").hidden = true; }
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#reader").hidden) closeReader(); });
 function setTo(to) { compose.to = to; paintCompose(); }
 // Pills are multi-select: each named session gets the message as a direct one; @all is exclusive.
 function toggleTo(to) {

@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from .bus import Bus, now
 from .models import is_group, is_to, AGENT_KINDS, CLOSING_KINDS, HANDLE_RE, OPERATOR_KINDS, SYSTEM, LoginIn, PostIn, PresenceIn, PushSubscription
+from .handoffs import Handoffs, HandoffIn
 from .push import Pusher
 from .telemetry import Telemetry, Usage, summarize
 
@@ -80,6 +81,7 @@ def create_app(settings: Settings) -> FastAPI:
                     operator=settings.operator, vapid_sub=settings.vapid_sub)
     bus.on_append.append(pusher.on_event)
     tel = Telemetry(settings.data_dir / "telemetry.jsonl")
+    handoffs = Handoffs(settings.data_dir / "handoffs.json")
 
     async def sweeper() -> None:
         while True:
@@ -251,7 +253,8 @@ def create_app(settings: Settings) -> FastAPI:
     async def state(who: Principal = Depends(principal)) -> dict:
         return {
             "head": bus.head, "you": who, "operator": settings.operator, "client_build": settings.client_build, "inbox": bus.inbox(),
-            "presence": bus.live_presence(operator_view=(who == "operator")),
+            "presence": [({**p, "handoff_at": handoffs.latest_at(p["handle"])} if who == "operator" else p)
+                         for p in bus.live_presence(operator_view=(who == "operator"))],
             "push": {"public_key": pusher.public_key, "subscriptions": len(pusher.subs)} if who == "operator" else None,
         }
 
@@ -272,6 +275,17 @@ def create_app(settings: Settings) -> FastAPI:
             raise HTTPException(404, "never seen")
         return {"handle": handle, "cursor": p.cursor, "last_seen": p.last_seen.isoformat(),
                 "renamed_to": p.renamed_to, "renamed_from": p.renamed_from}
+
+    @app.post("/api/handoffs")
+    async def post_handoff(h: HandoffIn, who: Principal = Depends(principal)) -> dict:
+        if who != "agent":
+            raise HTTPException(403, "handoffs come from sessions")
+        return {"ok": True, "kept": handoffs.add(h)}
+
+    @app.get("/api/handoffs/{handle}")
+    async def get_handoffs(handle: str, _: Principal = Depends(operator_only)) -> dict:
+        notes = handoffs.by_handle.get(handle, [])
+        return {"handle": handle, "notes": [n.model_dump(mode="json") for n in reversed(notes)]}
 
     @app.get("/api/telemetry")
     async def telemetry(hours: float = 24, _: Principal = Depends(operator_only)) -> dict:
