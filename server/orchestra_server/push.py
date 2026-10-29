@@ -3,7 +3,7 @@ are encrypted end-to-end to the subscribed browser.
 
 Tiering (ORCHESTRA.md §5, trimmed for v0):
   ask -> @operator      immediate, high urgency, with a "take default" action
-  request/note/defaulted  batched into one digest push after DIGEST_DELAY_S
+  request/note/defaulted/answer  batched into one high-urgency digest push after DIGEST_DELAY_S
   everything else        never leaves the page
 """
 
@@ -110,6 +110,7 @@ class Pusher:
                 self._digest_task = self._spawn(self._digest_later())
 
     async def _digest_later(self) -> None:
+        print(f"orchestra: digest push scheduled in {self.digest_delay_s:.0f}s", file=sys.stderr, flush=True)
         await asyncio.sleep(self.digest_delay_s)
         batch, self._pending = self._pending, []
         if not batch:
@@ -123,7 +124,7 @@ class Pusher:
         await self.send({
             "title": f"orchestra · {summary}", "body": "\n".join(lines),
             "tag": "digest", "kind": "digest", "url": self.base_url,
-        }, urgency="normal")
+        }, urgency="high")  # "normal" lets Android Doze hold it until the phone wakes; digests are rare by design
 
     def _spawn(self, coro) -> asyncio.Task | None:
         try:
@@ -162,4 +163,6 @@ class Pusher:
                 print(f"orchestra: push failed: {exc!r}", file=sys.stderr)
         for ep in dead:
             self.unsubscribe(ep)
+        print(f"orchestra: push {payload.get('kind')} {payload.get('tag')!r} -> {delivered}/{len(self.subs) + len(dead)} device(s)"
+              + (f", {len(dead)} expired and dropped" if dead else ""), file=sys.stderr, flush=True)
         return delivered
