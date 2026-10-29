@@ -114,11 +114,33 @@ class Bus:
                 return i
 
     def resolve_to(self, post: PostIn) -> str:
-        """Closing events go back to whoever opened the thread."""
+        """Closing events go back to whoever opened the thread; short addresses expand."""
         if post.kind in CLOSING_KINDS | {"reply"} and post.ref in self.threads and post.to == "@all":
             opener = self.threads[post.ref].from_
             return f"@{opener}"
-        return post.to
+        return self.expand_address(post.to)
+
+    def expand_address(self, to: str) -> str:
+        """@steering -> @steering-and-serving-engine-optimization when that prefix is unique.
+
+        Exact handles win; an ambiguous or unknown prefix is left as written (it may be a
+        session that hasn't checked in yet). The log always records the expanded handle.
+        """
+        if to == "@all":
+            return to
+        h = to[1:]
+        known = set(self.presence) | {self.operator}
+        if h in known:
+            return to
+        hits = [k for k in known if k.startswith(h)]
+        return f"@{hits[0]}" if len(hits) == 1 else to
+
+    def excerpt(self, ref: str | None, n: int = 120) -> str | None:
+        t = self.threads.get(ref or "")
+        if t is None:
+            return None
+        first = (t.body.strip().splitlines() or [""])[0]
+        return first if len(first) <= n else first[: n - 1] + "…"
 
     async def append(self, post: PostIn) -> Event:
         async with self._lock:
@@ -128,6 +150,7 @@ class Bus:
                 {
                     **post.model_dump(by_alias=True),
                     "to": self.resolve_to(post),
+                    "ref_excerpt": self.excerpt(post.ref) if post.kind in CLOSING_KINDS | {"reply"} else None,
                     "seq": self.head + 1,
                     "id": self._new_id(post.kind),
                     "ts": now(),

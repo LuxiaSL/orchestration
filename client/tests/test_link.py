@@ -48,3 +48,31 @@ def test_render_choice_and_clarify():
     assert "chose 'ship now'" in s and "after lunch" in s
     s = render({"kind": "reply", "from": "ada", "ref": "a1", "body": "what about the migration?"}, operator="ada")
     assert "post(kind='reply', ref='a1'" in s and "stays open" in s
+
+
+def test_render_excerpt_and_peer_digest():
+    s = render({"kind": "ack", "from": "ada", "ref": "n1", "ref_excerpt": "standard-1b is on main", "to": "@me"}, operator="ada")
+    assert "your 'standard-1b is on main'" in s
+    long = "GPU plan for tonight\n" + "detail " * 300
+    s = render({"kind": "info", "from": "peer", "to": "@all", "id": "m9", "body": long}, operator="ada")
+    assert s.startswith("info m9 from peer") and "get('m9')" in s and len(s) < 300
+    s = render({"kind": "notice", "from": "ada", "to": "@all", "id": "m8", "body": long}, operator="ada")
+    assert "detail detail" in s  # the operator's broadcasts arrive whole
+
+
+def test_pushes_batch(monkeypatch):
+    import asyncio
+    from orchestra_mcp import link as L
+    monkeypatch.setattr(L, "PUSH_BATCH_S", 0.05)
+    got = []
+    async def notify(c, m): got.append((c, m))
+    async def go():
+        lk = L.Link(None, notify)
+        for i in range(3):
+            await lk._push(f"msg {i}", {"id": f"m{i}"})
+        await asyncio.sleep(0.3)
+        await lk._push("later", {"id": "m9"})
+        await asyncio.sleep(0.3)
+    asyncio.run(go())
+    assert len(got) == 2 and got[0][1]["kind"] == "batch" and got[0][1]["ids"] == "m0,m1,m2" and "[3] msg 2" in got[0][0]
+    assert got[1][0] == "later"

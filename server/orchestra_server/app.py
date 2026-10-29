@@ -158,6 +158,8 @@ def create_app(settings: Settings) -> FastAPI:
             if who == "agent":
                 if post.kind == "withdraw" and thread.from_ != post.from_:
                     raise HTTPException(403, "only the opener may withdraw a thread")
+                if post.kind == "answer" and thread.from_ == post.from_:
+                    raise HTTPException(403, f"you opened {thread.id}; add to it with kind='reply', or retract it with kind='withdraw'")
                 if post.kind == "answer" and thread.to not in (f"@{post.from_}", "@all"):
                     raise HTTPException(403, f"{thread.id} is addressed to {thread.to}, not you; use kind=reply to comment")
         if post.choice is not None:
@@ -319,6 +321,13 @@ def create_app(settings: Settings) -> FastAPI:
         if f.parent != brand_dir or not f.is_file() or name.startswith("."):
             raise HTTPException(404)
         return FileResponse(f, headers={"Cache-Control": "public, max-age=604800"})
+
+    @app.get("/m/{event_id}")
+    async def permalink(event_id: str) -> Response:
+        """Stable link for citing a bus message in docs: opens the page searched to it."""
+        if not event_id.isalnum() or len(event_id) > 16:
+            raise HTTPException(404)
+        return Response(status_code=302, headers={"Location": f"/#q={event_id}"})
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:

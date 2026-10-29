@@ -112,6 +112,7 @@ class Event(BaseModel):
     multi: bool = False
     context: str | None = None
     choice: list[str] | None = None
+    ref_excerpt: str | None = None  # first line of the thread this closes/replies to, so a push stands alone
     session_id: str | None = None
     client_id: str | None = None
 

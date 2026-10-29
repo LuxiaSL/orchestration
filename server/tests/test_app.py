@@ -287,3 +287,20 @@ def test_presence_persists_with_cursor_and_waiting(tmp_path):
         # an old client (no cursor field) keeps the stored cursor
         c.post("/api/presence", headers=A, json={"handle": "atlas"})
         assert c.get("/api/presence/atlas", headers=A).json()["cursor"] == 0
+
+
+def test_excerpts_short_addresses_hints_permalinks(client):
+    client.post("/api/presence", headers=AGENT, json={"handle": "steering-and-serving-engine-optimization"})
+    client.post("/api/presence", headers=AGENT, json={"handle": "posttraining"})
+    client.post("/api/presence", headers=AGENT, json={"handle": "pleroma"})
+    e = client.post("/api/events", headers=AGENT, json={"from": "atlas", "to": "@steering", "kind": "info", "body": "x"}).json()
+    assert e["to"] == "@steering-and-serving-engine-optimization"
+    assert client.post("/api/events", headers=AGENT, json={"from": "atlas", "to": "@p", "kind": "info", "body": "x"}).json()["to"] == "@p"  # ambiguous: as written
+    note = client.post("/api/events", headers=AGENT, json={"from": "atlas", "to": "@ada", "kind": "note", "body": "standard-1b is on main\nmore detail"}).json()
+    ack = client.post("/api/events", headers=OP, json={"from": "ada", "kind": "ack", "ref": note["id"]}).json()
+    assert ack["ref_excerpt"] == "standard-1b is on main" and ack["to"] == "@atlas"
+    req = client.post("/api/events", headers=AGENT, json={"from": "atlas", "to": "@hermes", "kind": "request", "body": "?"}).json()
+    r = client.post("/api/events", headers=AGENT, json={"from": "atlas", "kind": "answer", "ref": req["id"], "body": "self"})
+    assert r.status_code == 403 and "kind='reply'" in r.json()["detail"]
+    pl = client.get(f"/m/{note['id']}", follow_redirects=False)
+    assert pl.status_code == 302 and pl.headers["location"] == f"/#q={note['id']}"

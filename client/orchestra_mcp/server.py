@@ -18,6 +18,7 @@ from typing import Annotated, Any, Literal
 
 import anyio
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field
 
 from .link import Config, ConfigError, Link, render
@@ -34,7 +35,9 @@ Talking to {op} (pick the lightest that fits):
 - request_human: non-urgent question. Keep working; the answer arrives as a push whenever they get to it. For a decision, pass options (recommendation first, marked recommended) plus context; they can pick, comment, or reply for more info (answer that reply with post(kind='reply', ref=<id>)).
 - ask_human: only for something irreversible, cross-boundary, or a taste call you can't make. It MUST carry a default and a deadline. Keep doing other work; at the deadline you'll be told to take the default. Never sit idle waiting.
 
-Talking to peers: post(to='@handle' or '@all'). kind=status for routine progress (not pushed to anyone), info for things others should know now (pushed), request for a question to a peer (they answer with kind=answer, ref=<id>).
+Catching up: read() gives one line per event (not your own posts) from your cursor; get(id) for one in full; read(thread=id) for a request and its replies; read(topic=...) or since=... to narrow.
+
+Talking to peers: post(to='@handle' or '@all'; a unique prefix like '@steering' works). Keep posts short (~600 chars), and link a file for detail. kind=status for routine progress (not pushed to anyone), info for things others should know now (pushed), request for a question to a peer (they answer with kind=answer, ref=<id>).
 
 Post a status when you start, finish, or get blocked. On HALT: finish the current atomic step, post status, start nothing new, end your turn.
 """
@@ -121,6 +124,12 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         lifespan=lifespan, middleware=[_StartOnInitialized(link)],
     )
 
+    def receipt(ev: dict) -> dict:
+        """What a write returns: enough to cite and follow up, never an echo of the body."""
+        if ev.get("queued"):
+            return {"queued": True, "note": ev.get("note")}
+        return {k: ev[k] for k in ("id", "seq", "ts", "to") if k in ev}
+
     def need_config() -> None:
         if config is None:
             raise ConfigError(config_error or "orchestra is not configured")
@@ -150,12 +159,20 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
             "halted": render(link.halted) if link.halted else None,
             "open_asks": [vars(a) for a in link.state.asks.values()],
             "spooled_posts": len(link.state.drain_spool()),
+            "unread": await _unread(ident.handle) if config and link.connected else None,
         }
+
+    async def _unread(me: str) -> int | None:
+        try:
+            d = await link.get("/api/events", after=link.state.read_cursor, limit=2000)
+        except ToolError:
+            return None
+        return sum(1 for e in d["events"] if e.get("from") != me)
 
     @server.tool()
     async def post(
-        body: Annotated[str, Field(description="Plain text, short.")],
-        to: Annotated[str, Field(description="'@all' or '@<handle>'.")] = "@all",
+        body: Annotated[str, Field(description="Plain text. Aim for under ~600 characters (it may be read on a phone); link a file or record path for detail.")],
+        to: Annotated[str, Field(description="'@all' or '@<handle>'; any unique prefix of a handle works (e.g. '@steering').")] = "@all",
         kind: Annotated[
             Literal["status", "info", "reply", "request", "answer", "withdraw"],
             Field(description="status=routine progress (never pushed); info=others should know now; "
@@ -165,27 +182,69 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         topic: Annotated[str | None, Field(description="Optional short tag, e.g. 'api-v2'.")] = None,
         ref: Annotated[str | None, Field(description="Id of the message being answered/replied to.")] = None,
     ) -> dict:
-        """Post to the bus, for peers (and everyone reading)."""
+        """Post to the bus, for peers (and everyone reading). Returns {id, seq, ts, to}."""
         need_config()
-        return await link.post({"to": to, "kind": kind, "body": body, "topic": topic, "ref": ref})
+        return receipt(await link.post({"to": to, "kind": kind, "body": body, "topic": topic, "ref": ref}))
 
     @server.tool()
     async def read(
-        limit: Annotated[int, Field(ge=1, le=500)] = 50,
-        everything: Annotated[bool, Field(description="Include peer status chatter.")] = True,
+        limit: Annotated[int, Field(ge=1, le=200, description="Max events returned.")] = 20,
+        full: Annotated[bool, Field(description="Full bodies instead of one line per event.")] = False,
+        include_mine: Annotated[bool, Field(description="Include your own posts.")] = False,
+        since: Annotated[str | None, Field(description="Start after this seq number or message id instead of your read cursor (doesn't move the cursor).")] = None,
+        thread: Annotated[str | None, Field(description="A message id: return it and everything that refs it, oldest first.")] = None,
+        topic: Annotated[str | None, Field(description="Only events with this topic.")] = None,
+        kind: Annotated[str | None, Field(description="Only this kind, e.g. 'info' or 'request'.")] = None,
     ) -> dict:
-        """What's new on the bus since you last read (advances your read cursor)."""
+        """Catch up on the bus. One line per event by default (get(id) for a full body); your own posts are left out.
+        Without since/thread it continues from your read cursor and advances it."""
         need_config()
-        d = await link.get("/api/events", after=link.state.read_cursor, limit=limit)
-        evs = d["events"]
-        if evs:
-            link.state.read_cursor = evs[-1]["seq"]
+        me = link.me.handle
+        if thread:
+            evs = list(reversed((await link.get("/api/search", q=thread, limit=200))["events"]))
+            return {"thread": thread, "events": [_line(e, full) for e in evs]}
+        moving = since is None
+        if since is None:
+            after = link.state.read_cursor
+        elif since.isdigit():
+            after = int(since)
+        else:
+            hit = [e for e in (await link.get("/api/search", q=since, limit=1))["events"] if e.get("id") == since]
+            if not hit:
+                raise ToolError(f"no message with id {since!r}")
+            after = int(hit[0]["seq"])
+        out: list[dict] = []
+        scanned_to, head = after, after
+        for _ in range(20):  # pages of 200, so a long absence can't blow the result up
+            d = await link.get("/api/events", after=scanned_to, limit=200)
+            head = d["head"]
+            for e in d["events"]:
+                scanned_to = int(e["seq"])
+                if (include_mine or e.get("from") != me) and (topic is None or e.get("topic") == topic) and (kind is None or e.get("kind") == kind):
+                    out.append(e)
+                    if len(out) >= limit:
+                        break
+            if len(out) >= limit or not d["events"] or scanned_to >= head:
+                break
+        if moving:
+            link.state.read_cursor = max(link.state.read_cursor, scanned_to)
             link.state.save()
-        if not everything:
-            evs = [e for e in evs if e.get("kind") != "status"]
-        return {"head": d["head"], "more": bool(evs) and evs[-1]["seq"] < d["head"],
-                "events": [{k: e[k] for k in ("seq", "id", "ts", "from", "to", "kind", "body", "topic", "ref") if k in e}
-                           for e in evs]}
+        more = scanned_to < head
+        return {"events": [_line(e, full) for e in out], "more": more,
+                **({"next": "call read() again for more" if moving else f"read(since='{scanned_to}') for more"} if more else {})}
+
+    def _line(e: dict, full: bool) -> str | dict:
+        if full:
+            keep = ("seq", "id", "ts", "from", "to", "kind", "topic", "ref", "body", "choice", "options", "default", "deadline")
+            d = {k: e[k] for k in keep if k in e}
+            if len(d.get("body", "")) > 4000:
+                d["body"] = d["body"][:4000] + f"… [{len(e['body'])} chars; get('{e['id']}') for all]"
+            return d
+        first = ((e.get("body") or "").strip().splitlines() or [""])[0]
+        first = first if len(first) <= 120 else first[:119] + "…"
+        topic_ = f" #{e['topic']}" if e.get("topic") else ""
+        ref_ = f" re {e['ref']}" if e.get("ref") else ""
+        return f"#{e['seq']} {e['id']} {e['from']}→{e['to']} {e['kind']}{topic_}{ref_}: {first}" 
 
     @server.tool()
     async def note_human(
@@ -193,7 +252,7 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         topic: str | None = None,
     ) -> dict:
         """Something just for the human operator's eyes. Never blocks, needs no reply."""
-        return await _human("note", body, topic)
+        return receipt(await _human("note", body, topic))
 
     @server.tool()
     async def request_human(
@@ -204,7 +263,7 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         context: Annotated[str | None, Field(max_length=4000, description="Why you're asking / what you already know. Shown above the options.")] = None,
     ) -> dict:
         """Non-urgent question for the human operator. Keep working: the answer is pushed to you whenever they get to it."""
-        return await _human("request", question, topic, **_choices(options, multi_select, context))
+        return receipt(await _human("request", question, topic, **_choices(options, multi_select, context)))
 
     @server.tool()
     async def ask_human(
@@ -223,13 +282,23 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
                           deadline=deadline.isoformat(), revert_cost=revert_cost,
                           **_choices(options, multi_select, context))
         link.remember_ask(ev, question, default, deadline)
-        return {**ev, "next": f"keep working; at {deadline:%H:%M}Z without an answer you will be told to take the default"}
+        return {**receipt(ev), "next": f"keep working; at {deadline:%H:%M}Z without an answer you will be told to take the default"}
 
     @server.tool()
-    async def check(thread_id: Annotated[str, Field(description="An ask/request/note id.")]) -> dict:
-        """Status of an ask/request: open, answered (with the answer), defaulted, acked, withdrawn."""
+    async def get(id: Annotated[str, Field(description="Any message id (m…, a…, r…, n…).")]) -> dict:
+        """One message in full. For an ask/request/note, also its status (open, answered, acked, defaulted,
+        withdrawn), the answer or choice, and every reply under it."""
         need_config()
-        return await link.get(f"/api/threads/{thread_id}")
+        hits = [e for e in (await link.get("/api/search", q=id, limit=50))["events"] if e.get("id") == id]
+        if not hits:
+            raise ToolError(f"no message with id {id!r}")
+        out: dict = {"event": _line(hits[0], True)}
+        try:
+            t = await link.get(f"/api/threads/{id}")
+            out["thread"] = {k: t[k] for k in ("status", "resolution", "choice", "resolved_by", "resolved_at", "answers") if k in t}
+        except ToolError:
+            pass  # not a thread
+        return out
 
     return server
 

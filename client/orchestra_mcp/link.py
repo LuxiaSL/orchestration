@@ -33,6 +33,9 @@ PEER_BROADCAST_PUSH = frozenset({"info", "request"})
 LOCAL_DEFAULT_GRACE = timedelta(seconds=90)
 # More missed messages than this on catch-up become one summary push, not a flood of turns.
 CATCHUP_PUSH_LIMIT = 5
+# Pushes that arrive this close together become one turn (one wrapper, one interruption).
+PUSH_BATCH_S = 1.5
+PUSH_BATCH_MAX_S = 6.0
 
 
 class ConfigError(ToolError):
@@ -84,23 +87,25 @@ def render(ev: dict, operator: str = "operator") -> str:
     """One event as the line the model sees."""
     kind, frm, body = ev.get("kind"), ev.get("from"), ev.get("body", "")
     ref = f" re {ev['ref']}" if ev.get("ref") else ""
+    # Name the thread being closed/answered, so the push makes sense after a compaction.
+    about = f" (your '{ev['ref_excerpt']}')" if ev.get("ref_excerpt") else ""
     topic = f" [{ev['topic']}]" if ev.get("topic") else ""
     if kind == "answer":
         if ev.get("choice") is not None:
             picked = ", ".join(repr(c) for c in ev["choice"]) or "(none of the options)"
             note = f"\nTheir comment: {body}" if body else ""
-            return (f"{frm} answered {ev.get('ref')} → chose {picked}.{note}\n"
+            return (f"{frm} answered {ev.get('ref')}{about} → chose {picked}.{note}\n"
                     "(Act on this choice; it supersedes the default.)")
-        return f"{frm} answered {ev.get('ref')}: {body}\n(Act on this answer; it supersedes the default.)"
+        return f"{frm} answered {ev.get('ref')}{about}: {body}\n(Act on this answer; it supersedes the default.)"
     if kind == "reply" and frm == operator and ev.get("ref"):
-        return (f"{frm} replied re {ev['ref']}: {body}\n"
+        return (f"{frm} replied re {ev['ref']}{about}: {body}\n"
                 f"(If {ev['ref']} is your open question, they want more before deciding: answer with "
                 f"post(kind='reply', ref='{ev['ref']}', to='@{frm}'). It stays open, and any deadline still applies.)")
     if kind == "defaulted":
-        return (f"ask {ev.get('ref')} reached its deadline unanswered → take the DEFAULT: {body}\n"
+        return (f"ask {ev.get('ref')}{about} reached its deadline unanswered → take the DEFAULT: {body}\n"
                 "(Proceed with the default and say so in your next status.)")
     if kind == "ack":
-        return f"{frm} acknowledged {ev.get('ref')}" + (f": {body}" if body else "")
+        return f"{frm} acknowledged {ev.get('ref')}{about}" + (f": {body}" if body else "")
     if kind == "halt":
         return (f"HALT from {frm}{topic}: {body or 'pause'}\n"
                 "Finish only the current atomic step, post a `status` saying where you stopped, "
@@ -109,6 +114,13 @@ def render(ev: dict, operator: str = "operator") -> str:
         return f"RESUME from {frm}{topic}: {body or 'carry on'}"
     if kind == "notice":
         return f"notice from {frm}{topic} → {ev.get('to')}: {body}"
+    if ev.get("to") == "@all" and frm != operator and kind in ("info", "request"):
+        # A peer's broadcast is usually not for you: one line, full text on demand.
+        first = (body.strip().splitlines() or [""])[0]
+        first = first if len(first) <= 140 else first[:139] + "…"
+        more = f" get('{ev.get('id')}') for the full text." if len(body) > len(first) else ""
+        ask = f" Answer with post(kind='answer', ref='{ev.get('id')}') if it's yours to answer." if kind == "request" else ""
+        return f"{kind} {ev.get('id')} from {frm}{topic} → @all: {first}{more}{ask}"
     if kind == "request":
         return (f"request {ev.get('id')} from {frm}{topic}: {body}\n"
                 f"(Answer when it suits you with post(kind='answer', ref='{ev.get('id')}').)")
@@ -188,6 +200,8 @@ class Link:
         self.halted: dict | None = None
         self.pushed = 0
         self.usage = UsageTracker()
+        self._outbox: list[tuple[str, dict[str, str]]] = []
+        self._flusher: asyncio.Task | None = None
         self._beat_lock = asyncio.Lock()  # the usage tracker's file offset must not be read twice at once
         self._http: httpx.AsyncClient | None = None
         self._tasks: list[asyncio.Task] = []
@@ -295,11 +309,31 @@ class Link:
             await self._http.aclose()
 
     async def _push(self, content: str, meta: dict[str, str]) -> None:
+        """Queue a push. Pushes landing within PUSH_BATCH_S of each other go out as one turn."""
         if self.notify is None:
             return
+        self._outbox.append((content, meta))
+        if self._flusher is None or self._flusher.done():
+            self._flusher = asyncio.get_running_loop().create_task(self._flush_pushes())
+
+    async def _flush_pushes(self) -> None:
+        start = asyncio.get_running_loop().time()
+        seen = -1
+        while len(self._outbox) != seen and asyncio.get_running_loop().time() - start < PUSH_BATCH_MAX_S:
+            seen = len(self._outbox)
+            await asyncio.sleep(PUSH_BATCH_S)
+        batch, self._outbox = self._outbox, []
+        if not batch or self.notify is None:
+            return
+        if len(batch) == 1:
+            content, meta = batch[0]
+        else:
+            content = f"{len(batch)} orchestra messages:\n\n" + "\n\n".join(f"[{i}] {c}" for i, (c, _) in enumerate(batch, 1))
+            meta = {"source": "orchestra", "kind": "batch", "count": str(len(batch)),
+                    "ids": ",".join(m.get("id", "") for _, m in batch if m.get("id"))}
         try:
             await self.notify(content, meta)
-            self.pushed += 1
+            self.pushed += len(batch)
         except Exception as exc:
             print(f"orchestra-mcp: channel push failed ({exc!r})", file=sys.stderr)
 

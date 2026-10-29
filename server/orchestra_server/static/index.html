@@ -790,6 +790,8 @@ function connect() {
   es.onerror = () => $("#live").classList.remove("on");
 }
 function flashHash() {
+  const q = location.hash.match(/q=([\w-]+)/);  // permalinks: /m/<id> redirects to /#q=<id>
+  if (q) { history.replaceState(null, "", location.pathname); setSearch(q[1]); return; }
   const m = location.hash.match(/t=([\w-]+)/); if (!m) return;
   const el = document.getElementById("t-" + m[1]); if (!el) return;
   showTab("inbox"); el.classList.add("flash"); el.scrollIntoView({ block: "center" }); setTimeout(() => el.classList.remove("flash"), 2500);
@@ -833,7 +835,7 @@ async function boot() {
   $("#login").hidden = true; $("#app").hidden = false;
   const draft = recall("orc-draft"); if (draft && !$("#msg").value) $("#msg").value = draft;
   const d = await api(`/api/events?after=${Math.max(0, state.head - 300)}&limit=300`);
-  events = d.events; renderFeed(); connect(); updatePushBtn();
+  events = d.events; renderFeed(); connect(); updatePushBtn(); flashHash();
   if ("serviceWorker" in navigator) swReg().catch(() => {});
 }
 applyTheme();
