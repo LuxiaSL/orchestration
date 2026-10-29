@@ -111,6 +111,9 @@ details.closed summary { cursor: pointer; color: var(--muted); font-size: 13px; 
 .sent .ans { border-top: 1px solid var(--line); padding: 8px 0 2px; }
 .sent .ans .who { font-weight: 700; } .sent .ans .when { color: var(--faint); font-size: 12px; margin-left: 8px; }
 .sent .ans .txt { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; font-size: 14.5px; }
+.sent .ansact { margin-top: 4px; }
+.sent .mine { margin: 6px 0 0 14px; padding-left: 10px; border-left: 2px solid var(--fg); font-size: 14px; }
+.sent .mine .who { font-weight: 700; }
 .sent .waiting { color: var(--faint); font-size: 13px; padding: 6px 0; }
 .sent-h { margin-top: 30px; }
 .res b { text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }
@@ -374,7 +377,8 @@ let inboxStale = false;
 const typingInInbox = () => !!(document.activeElement && document.activeElement.closest("#inbox textarea"));
 function keepFocus(fn) {
   const a = document.activeElement;
-  const key = a && (a.dataset && a.dataset.draft ? `textarea[data-draft="${a.dataset.draft}"]` : a.id ? "#" + a.id : null);
+  const key = a && (a.dataset && a.dataset.draft ? `textarea[data-draft="${a.dataset.draft}"]`
+    : a.dataset && a.dataset.redraft ? `textarea[data-redraft="${a.dataset.redraft}"]` : a.id ? "#" + a.id : null);
   const sel = a && typeof a.selectionStart === "number" ? [a.selectionStart, a.selectionEnd] : null;
   fn();
   if (a && key && !document.contains(a)) {
@@ -406,18 +410,41 @@ function renderInboxNow() {
   const open = cmp ? [...state.inbox.open].sort(cmp) : state.inbox.open, closed = state.inbox.closed;
   $("#open").innerHTML = open.length ? open.map((t) => threadCard(t, false)).join("") : `<div class="empty">inbox zero — everyone's cooking</div>`;
   $("#closed").innerHTML = closed.map((t) => threadCard(t, true)).join("") || `<div class="empty">nothing yet</div>`;
-  document.querySelectorAll("textarea[data-draft]").forEach((ta) => {
-    ta.oninput = () => (drafts[ta.dataset.draft] = ta.value);
-    ta.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) answer(ta.dataset.draft); };
-  });
   renderSent();
   tickCountdowns(); flashHash();
+}
+// Each response to one of your requests can be replied to directly; the reply is
+// addressed to that session (so it's pushed to it) and refs the response it answers.
+const openReplies = new Set();
+function answerBlock(a) {
+  const mine = events.filter((e) => e.from === OP() && e.ref && e.ref === a.id)
+    .map((e) => `<div class="mine"><span class="who">you</span> <span class="when">${ago(e.ts)}</span><div class="txt">${esc(e.body)}</div></div>`).join("");
+  const box = a.id && openReplies.has(a.id)
+    ? `<div class="reply"><textarea data-redraft="${esc(a.id)}" data-to="${esc(a.from)}" rows="2" placeholder="reply to ${esc(a.from)}…">${esc(drafts["re-" + a.id] || "")}</textarea>
+       <div class="row"><button class="btn primary" onclick="replyTo('${esc(a.id)}','${esc(a.from)}')">send → @${esc(a.from)}</button><span class="spacer"></span><button class="btn ghost" onclick="toggleReply('${esc(a.id)}')">cancel</button></div></div>`
+    : a.id ? `<div class="ansact"><button class="mini" onclick="toggleReply('${esc(a.id)}')">reply to ${esc(a.from)}</button></div>` : "";
+  return `<div class="ans"><span class="who">${esc(a.from)}</span><span class="when">${a.kind === "reply" ? "reply · " : ""}${a.ts ? ago(a.ts) : ""}</span>${a.id ? `<span class="when idlink" data-id="${esc(a.id)}">${esc(a.id)}</span>` : ""}<div class="txt">${esc(a.body)}</div>${mine}${box}</div>`;
+}
+function toggleReply(id) {
+  openReplies.has(id) ? openReplies.delete(id) : openReplies.add(id);
+  renderInboxNow();
+  const ta = document.querySelector(`textarea[data-redraft="${id}"]`); if (ta) ta.focus({ preventScroll: true });
+}
+async function replyTo(id, to) {
+  const body = (drafts["re-" + id] || "").trim();
+  if (!body) return toast("write a reply first");
+  try {
+    await post({ kind: "reply", to: "@" + to, ref: id, body });
+    delete drafts["re-" + id]; openReplies.delete(id);
+    toast(`reply sent → @${to}`);
+    setTimeout(() => state && renderInboxNow(), 400);  // let the event arrive so "you:" shows
+  } catch (e) { toast("failed: " + e.message); }
 }
 function sentCard(t) {
   const answers = (t.answers && t.answers.length) ? t.answers
     : (t.status === "answered" ? [{ from: t.resolved_by, body: t.resolution, ts: t.resolved_at }] : []);
   const list = answers.length
-    ? answers.map((a) => `<div class="ans"><span class="who">${esc(a.from)}</span><span class="when">${a.kind === "reply" ? "reply · " : ""}${a.ts ? ago(a.ts) : ""}</span>${a.id ? `<span class="when idlink" data-id="${esc(a.id)}">${esc(a.id)}</span>` : ""}<div class="txt">${esc(a.body)}</div></div>`).join("")
+    ? answers.map(answerBlock).join("")
     : `<div class="waiting">no answers yet</div>`;
   const open = t.status === "open";
   const tail = open ? `<div class="reply"><div class="row"><span class="spacer"></span><button class="btn" onclick="ack('${t.id}')">close</button></div></div>`
@@ -615,6 +642,18 @@ function showTab(id) {
 }
 document.querySelectorAll("nav.tabs button").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
 $("#hideStatus").onchange = renderFeed; $("#onlyMine").onchange = renderFeed;
+// One delegated listener per event for every inbox text box, including ones drawn later.
+$("#inbox").addEventListener("input", (e) => {
+  const ta = e.target;
+  if (ta.dataset.draft) drafts[ta.dataset.draft] = ta.value;
+  else if (ta.dataset.redraft) drafts["re-" + ta.dataset.redraft] = ta.value;
+});
+$("#inbox").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || !(e.ctrlKey || e.metaKey)) return;
+  const ta = e.target;
+  if (ta.dataset.draft) answer(ta.dataset.draft);
+  else if (ta.dataset.redraft) replyTo(ta.dataset.redraft, ta.dataset.to);
+});
 $("#inbox").addEventListener("focusout", () => setTimeout(() => { if (inboxStale && !typingInInbox() && state) renderInbox(); }, 0));
 
 async function boot() {

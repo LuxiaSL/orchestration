@@ -167,7 +167,14 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/api/events")
     async def post_event(post: PostIn, who: Principal = Depends(principal)) -> dict:
-        ev = await bus.append(check_post(post, who))
+        try:
+            checked = check_post(post, who)
+        except HTTPException as exc:
+            # Refusals are otherwise invisible after the fact (the access log shows only the code).
+            print(f"orchestra: refused {who} {post.from_!r} {post.kind} to={post.to} ref={post.ref}: "
+                  f"{exc.status_code} {exc.detail}", file=sys.stderr, flush=True)
+            raise
+        ev = await bus.append(checked)
         return ev.wire()
 
     @app.get("/api/events")
