@@ -76,3 +76,18 @@ def test_pushes_batch(monkeypatch):
     asyncio.run(go())
     assert len(got) == 2 and got[0][1]["kind"] == "batch" and got[0][1]["ids"] == "m0,m1,m2" and "[3] msg 2" in got[0][0]
     assert got[1][0] == "later"
+
+
+def test_catchup_summary_keeps_one_line_per_message():
+    import asyncio
+    from orchestra_mcp import link as L
+    got = []
+    async def notify(c, m): got.append(c)
+    async def go():
+        lk = L.Link(None, notify)
+        held = [{"seq": i, "kind": "info", "id": f"m{i}", "from": "peer", "body": "GPU plan:\n- Now: node1\n- Later: node2"} for i in range(7)]
+        await lk._deliver_catchup(held)
+        await asyncio.sleep(L.PUSH_BATCH_S + 0.3)
+    asyncio.run(go())
+    lines = got[0].splitlines()
+    assert sum(1 for l in lines if l.startswith("- #")) == 7 and not any(l.startswith("- Now") for l in lines)

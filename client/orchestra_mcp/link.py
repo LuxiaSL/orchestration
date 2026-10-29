@@ -83,6 +83,12 @@ def is_for_me(ev: dict, me: str, operator: str = "operator") -> bool:
     return False
 
 
+def _one_line(text: str | None, n: int) -> str:
+    """Collapse whitespace so a multi-line body can't break a list it's quoted in."""
+    flat = " ".join((text or "").split())
+    return flat if len(flat) <= n else flat[: n - 1] + "…"
+
+
 def render(ev: dict, operator: str = "operator") -> str:
     """One event as the line the model sees."""
     kind, frm, body = ev.get("kind"), ev.get("from"), ev.get("body", "")
@@ -416,7 +422,7 @@ class Link:
                 await self._push_event(ev)
             return
         lines = [f"- #{e.get('seq')} {e.get('kind')} {e.get('id')} from {e.get('from')}"
-                 + (f" re {e['ref']}" if e.get("ref") else "") + f": {(e.get('body') or '')[:90]}" for e in held]
+                 + (f" re {e['ref']}" if e.get("ref") else "") + f": {_one_line(e.get('body'), 90)}" for e in held]
         await self._push(
             f"while you were away, {len(held)} messages for you arrived on the bus:\n" + "\n".join(lines[-15:])
             + ("\n(older ones omitted)" if len(lines) > 15 else "")
