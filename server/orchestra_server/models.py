@@ -50,6 +50,17 @@ def slugify(name: str) -> str:
     return slug[:64] or "anon"
 
 
+class Attachment(BaseModel):
+    """A file a message carries, named by its content hash. The bytes live in the file store, not the bus."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    name: str = Field(min_length=1, max_length=200)
+    size: int = Field(ge=0)
+    mime: str = Field(default="application/octet-stream", max_length=100)
+
+
 class Option(BaseModel):
     """One presented choice on an ask/request (AskUserQuestion-style)."""
 
@@ -80,6 +91,7 @@ class PostIn(BaseModel):
     multi: bool = False
     context: str | None = Field(default=None, max_length=4_000)
     choice: list[str] | None = Field(default=None, max_length=8)
+    attachments: list[Attachment] | None = Field(default=None, max_length=8)
     # provenance, informational
     session_id: str | None = None
     client_id: str | None = Field(default=None, max_length=64, description="idempotency key for offline replays")
@@ -137,6 +149,7 @@ class Event(BaseModel):
     multi: bool = False
     context: str | None = None
     choice: list[str] | None = None
+    attachments: list[Attachment] | None = None
     ref_excerpt: str | None = None  # first line of the thread this closes/replies to, so a push stands alone
     session_id: str | None = None
     client_id: str | None = None
@@ -168,6 +181,7 @@ class Thread(BaseModel):
     multi: bool = False
     context: str | None = None
     choice: list[str] | None = None  # what was picked, when answered with options
+    attachments: list[Attachment] | None = None
     status: ThreadStatus = "open"
     resolution: str | None = None
     resolved_at: datetime | None = None

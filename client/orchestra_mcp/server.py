@@ -23,6 +23,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field
 
 from .link import CLIENT_BUILD, CONTINUITY_DIR, Config, ConfigError, Link, render
+from .attach import AttachError, prepare
 from .recall import Recall, locate
 
 CHANNEL_METHOD = "notifications/claude/channel"
@@ -53,6 +54,9 @@ class Option(BaseModel):
     recommended: bool = False
 
 
+FILES_DOC = ("Absolute paths of local files to hand the operator (docs, notes, plots; up to 8, 10 MB each). They're stored "
+             "off this machine until a day after the operator closes the message; markdown renders on their page. "
+             "Secret-looking files (keys, .env, credentials, ~/.ssh, ~/.claude...) are refused. Never send secrets.")
 OPTIONS_DOC = ("Optional 2-8 presented choices, like AskUserQuestion: put your recommendation first and mark it "
                "recommended. They can pick (one, or several with multi_select), add a comment, answer in their "
                "own words instead, or reply asking for more info, which keeps the question open.")
@@ -147,8 +151,31 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
             out["context"] = context
         return out
 
-    async def _human(kind: str, body: str, topic: str | None, **extra: Any) -> dict:
+    async def _upload(paths: list[str]) -> list[dict]:
+        """Upload files for the operator; their attachment records for the message."""
+        try:
+            bodies = prepare(paths)
+        except AttachError as exc:
+            raise ToolError(str(exc)) from exc
+        out = []
+        for b in bodies:
+            try:
+                r = await link.http().post("/api/files", json=b, timeout=60)
+            except Exception as exc:
+                raise ToolError(f"couldn't upload {b['name']} (the bus must be reachable for files): {exc}") from exc
+            if r.status_code != 200:
+                try:
+                    detail = r.json().get("detail")
+                except Exception:
+                    detail = r.text[:200]
+                raise ToolError(f"upload of {b['name']} refused ({r.status_code}): {detail}")
+            out.append(r.json())
+        return out
+
+    async def _human(kind: str, body: str, topic: str | None, files: list[str] | None = None, **extra: Any) -> dict:
         need_config()
+        if files:
+            extra["attachments"] = await _upload(files)
         return await link.post({"to": f"@{link.operator}", "kind": kind, "body": body, "topic": topic, **extra})
 
     @server.tool()
@@ -280,9 +307,11 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
     async def note_human(
         body: Annotated[str, Field(description="What they should see. Lands in their notes; batched into a digest push.")],
         topic: str | None = None,
+        files: Annotated[list[str] | None, Field(max_length=8, description=FILES_DOC)] = None,
     ) -> dict:
-        """Something just for the human operator's eyes. Never blocks, needs no reply."""
-        return receipt(await _human("note", body, topic))
+        """Something just for the human operator's eyes. Never blocks, needs no reply. To hand them a document
+        to read (markdown renders on their page), pass its path in files."""
+        return receipt(await _human("note", body, topic, files))
 
     @server.tool()
     async def request_human(
@@ -291,9 +320,10 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         options: Annotated[list[Option] | None, Field(min_length=2, max_length=8, description=OPTIONS_DOC)] = None,
         multi_select: bool = False,
         context: Annotated[str | None, Field(max_length=4000, description="Why you're asking / what you already know. Shown above the options.")] = None,
+        files: Annotated[list[str] | None, Field(max_length=8, description=FILES_DOC)] = None,
     ) -> dict:
         """Non-urgent question for the human operator. Keep working: the answer is pushed to you whenever they get to it."""
-        return receipt(await _human("request", question, topic, **_choices(options, multi_select, context)))
+        return receipt(await _human("request", question, topic, files, **_choices(options, multi_select, context)))
 
     @server.tool()
     async def ask_human(
@@ -305,10 +335,11 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         options: Annotated[list[Option] | None, Field(min_length=2, max_length=8, description=OPTIONS_DOC + " With options, default must be one of the labels.")] = None,
         multi_select: bool = False,
         context: Annotated[str | None, Field(max_length=4000, description="Why you're asking / what you already know. Shown above the options.")] = None,
+        files: Annotated[list[str] | None, Field(max_length=8, description=FILES_DOC)] = None,
     ) -> dict:
         """BLOCKING-tier ask: pings the operator's phone now. You still never wait idle; at the deadline you take the default."""
         deadline = datetime.now(UTC) + timedelta(minutes=deadline_minutes)
-        ev = await _human("ask", question, topic, default=default,
+        ev = await _human("ask", question, topic, files, default=default,
                           deadline=deadline.isoformat(), revert_cost=revert_cost,
                           **_choices(options, multi_select, context))
         link.remember_ask(ev, question, default, deadline)

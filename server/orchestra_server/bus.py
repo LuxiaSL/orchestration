@@ -84,7 +84,7 @@ class Bus:
                     "id": ev.id, "kind": ev.kind, "from": ev.from_, "to": ev.to, "ts": ev.ts,
                     "body": ev.body, "topic": ev.topic, "default": ev.default,
                     "deadline": ev.deadline, "revert_cost": ev.revert_cost,
-                    "options": ev.options, "multi": ev.multi, "context": ev.context,
+                    "options": ev.options, "multi": ev.multi, "context": ev.context, "attachments": ev.attachments,
                 }
             )
         elif ev.kind in CLOSING_KINDS and ev.ref in self.threads:

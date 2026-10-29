@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from .bus import Bus, now
 from .models import is_group, is_to, AGENT_KINDS, CLOSING_KINDS, HANDLE_RE, OPERATOR_KINDS, SYSTEM, LoginIn, PostIn, PresenceIn, PushSubscription
+from .files import FileIn, Files
 from .handoffs import Handoffs, HandoffIn
 from .push import Pusher
 from .telemetry import Telemetry, Usage, summarize
@@ -82,13 +83,16 @@ def create_app(settings: Settings) -> FastAPI:
     bus.on_append.append(pusher.on_event)
     tel = Telemetry(settings.data_dir / "telemetry.jsonl")
     handoffs = Handoffs(settings.data_dir / "handoffs.json")
+    files = Files(settings.data_dir / "files", settings.operator)
+    bus.on_append.append(lambda ev: files.on_event(ev, bus.threads))
 
     async def sweeper() -> None:
         while True:
             try:
                 await bus.sweep_deadlines()
+                files.sweep()
             except Exception as exc:
-                print(f"orchestra: deadline sweep failed: {exc!r}", file=sys.stderr)
+                print(f"orchestra: sweep failed: {exc!r}", file=sys.stderr)
             await asyncio.sleep(settings.sweep_interval_s)
 
     @asynccontextmanager
@@ -104,6 +108,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     app = FastAPI(title="orchestra", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.bus = bus
+    app.state.files = files
     app.state.pusher = pusher
     app.state.settings = settings
 
@@ -176,6 +181,9 @@ def create_app(settings: Settings) -> FastAPI:
                 raise HTTPException(422, f"not options of {thread.id}: {unknown}; options are {labels}")
             if not thread.multi and len(post.choice) > 1:
                 raise HTTPException(422, f"{thread.id} takes one choice")
+        for a in post.attachments or []:
+            if not files.known(a.sha256):
+                raise HTTPException(422, f"attachment {a.name!r} isn't uploaded (POST /api/files first) or has expired")
         if post.kind == "ask":
             if post.deadline is None or post.default is None:
                 raise HTTPException(422, "an ask needs default and deadline (invariant 1: nothing hard-blocks on a human)")
@@ -247,12 +255,13 @@ def create_app(settings: Settings) -> FastAPI:
         t = bus.threads.get(thread_id)
         if t is None:
             raise HTTPException(404, "no such thread")
-        return t.wire()
+        return files.decorate([t.wire()])[0]
 
     @app.get("/api/state")
     async def state(who: Principal = Depends(principal)) -> dict:
         return {
-            "head": bus.head, "you": who, "operator": settings.operator, "client_build": settings.client_build, "inbox": bus.inbox(),
+            "head": bus.head, "you": who, "operator": settings.operator, "client_build": settings.client_build,
+            "inbox": {k: files.decorate(v) for k, v in bus.inbox().items()},
             "presence": [({**p, "handoff_at": handoffs.latest_at(p["handle"])} if who == "operator" else p)
                          for p in bus.live_presence(operator_view=(who == "operator"))],
             "push": {"public_key": pusher.public_key, "subscriptions": len(pusher.subs)} if who == "operator" else None,
@@ -286,6 +295,32 @@ def create_app(settings: Settings) -> FastAPI:
     async def get_handoffs(handle: str, _: Principal = Depends(operator_only)) -> dict:
         notes = handoffs.by_handle.get(handle, [])
         return {"handle": handle, "notes": [n.model_dump(mode="json") for n in reversed(notes)]}
+
+    @app.post("/api/files")
+    async def upload_file(f: FileIn, _: Principal = Depends(principal)) -> dict:
+        """Upload a file to attach to a message (by its sha256). Unclaimed uploads are deleted after 15 minutes."""
+        try:
+            rec = files.upload(f)
+        except OverflowError as exc:
+            raise HTTPException(413, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"sha256": rec.sha256, "name": rec.name, "size": rec.size, "mime": rec.mime}
+
+    @app.get("/api/files/{sha256}")
+    async def get_file(sha256: str, _: Principal = Depends(operator_only)) -> Response:
+        hit = files.path(sha256)
+        if hit is None:
+            rec = files.recs.get(sha256)
+            raise HTTPException(410 if rec else 404, f"{rec.name} was deleted ({rec.why_deleted})" if rec else "no such file")
+        p, rec = hit
+        ctype, inline = files.serve_as(rec.mime)
+        safe = "".join(c if c.isalnum() or c in "._- " else "_" for c in rec.name)
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=300",
+                   "Content-Disposition": f'{"inline" if inline else "attachment"}; filename="{safe}"'}
+        if ctype != "application/pdf":  # (Chrome's PDF viewer won't run sandboxed)
+            headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
+        return FileResponse(p, media_type=ctype, headers=headers)
 
     @app.get("/api/telemetry")
     async def telemetry(hours: float = 24, _: Principal = Depends(operator_only)) -> dict:
@@ -322,6 +357,13 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/telemetry.js")
     async def telemetry_js() -> FileResponse:
         return FileResponse(STATIC / "telemetry.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/vendor/{name}")
+    async def vendor(name: str) -> FileResponse:
+        # pinned third-party scripts (markdown + its sanitizer), checked in with their SHA256SUMS
+        if name not in ("marked.min.js", "purify.min.js"):
+            raise HTTPException(404, "no such file")
+        return FileResponse(STATIC / "vendor" / name, media_type="text/javascript", headers={"Cache-Control": "public, max-age=86400"})
 
     @app.get("/manifest.webmanifest")
     async def manifest() -> FileResponse:

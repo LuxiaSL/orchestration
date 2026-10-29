@@ -233,7 +233,28 @@ details.closed summary { cursor: pointer; color: var(--muted); font-size: 13px; 
 #reader .note ul { padding-left: 20px; margin: 4px 0; }
 #reader .note blockquote { margin: 6px 0; padding: 4px 12px; border-left: 3px solid var(--fg); background: var(--surface2); overflow-wrap: anywhere; }
 #reader .note em { color: var(--muted); }
-#reader .bottom { margin-top: 18px; display: flex; justify-content: flex-end; }
+#reader .bottom { margin-top: 18px; display: flex; justify-content: flex-end; gap: 8px; }
+/* files: rendered markdown, text, images */
+.files { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.file { display: inline-flex; gap: 6px; align-items: baseline; font-size: 13px; border: 1px solid var(--fg); padding: 2px 9px; background: var(--surface); cursor: pointer; max-width: 100%; color: var(--fg); }
+.file .fn { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.file .fs { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.file:hover { background: var(--surface2); }
+.file.gone { border-style: dashed; color: var(--faint); cursor: default; text-decoration: line-through; }
+.ev .files { margin: 4px 0 0; } .ev .file { font-size: 12px; padding: 0 7px; }
+#reader .note.md { line-height: 1.6; overflow-wrap: anywhere; }
+#reader .note.md h1, #reader .note.md h2, #reader .note.md h3 { font-size: 16px; letter-spacing: .06em; margin: 20px 0 6px; }
+#reader .note.md h1 { font-size: 19px; } #reader .note.md h4 { font-size: 14px; letter-spacing: .1em; text-transform: uppercase; }
+#reader .note.md code { background: var(--surface2); padding: 0 4px; font-size: .92em; }
+#reader .note.md pre { background: var(--surface2); padding: 10px 12px; overflow-x: auto; border-left: 3px solid var(--line); }
+#reader .note.md pre code { background: none; padding: 0; }
+#reader .note.md table { border-collapse: collapse; display: block; overflow-x: auto; font-size: 13.5px; margin: 10px 0; }
+#reader .note.md th, #reader .note.md td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+#reader .note.md th { background: var(--surface2); }
+#reader .note.md img { max-width: 100%; }
+#reader .note.md hr { border: 0; border-top: 1px solid var(--rule); margin: 18px 0; }
+#reader .note.plain { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+#reader .note img.whole { max-width: 100%; display: block; margin: 10px auto; }
 #toast { position: fixed; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 16px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100vw - 32px); z-index: 30; }
 #toast.show { opacity: 1; }
 
@@ -353,6 +374,8 @@ details.tv .scroll { max-height: 280px; overflow: auto; margin-top: 6px; }
 </style>
 <link rel="stylesheet" href="/brand.css">
 <script src="/telemetry.js" defer></script>
+<script src="/vendor/marked.min.js" defer></script>
+<script src="/vendor/purify.min.js" defer></script>
 </head>
 <body>
 <div id="login" hidden>
@@ -450,11 +473,11 @@ details.tv .scroll { max-height: 280px; overflow: auto; margin-top: 6px; }
 </div>
 <div id="tip"></div>
 <div id="reader" hidden onclick="if (event.target === this) closeReader()"><div class="sheet">
-  <div class="top"><h2>Handoff</h2><span class="meta" id="rdMeta"></span><span class="spacer"></span>
+  <div class="top"><h2 id="rdTitle">Handoff</h2><span class="meta" id="rdMeta"></span><span class="spacer"></span>
     <button class="btn ghost" id="rdOlder" onclick="stepReader(1)">older</button><button class="btn ghost" id="rdNewer" onclick="stepReader(-1)">newer</button>
     <button class="btn" onclick="closeReader()">close</button></div>
   <div class="note" id="rdNote"></div>
-  <div class="bottom"><button class="btn" onclick="closeReader()">close</button></div></div></div>
+  <div class="bottom"><a class="btn ghost" id="rdDl" hidden download>download</a><button class="btn" onclick="closeReader()">close</button></div></div></div>
 <div id="toast"></div>
 
 <script>
@@ -564,6 +587,15 @@ function discussion(t) {
   if (!items.length) return "";
   return `<div class="disc">${items.map((a) => `<div class="d${a.from === OP() ? " op" : ""}"><span class="who2" title="${esc(a.from)}">${esc(nick(a.from))}</span><span class="when">${a.kind === "answer" ? "answered · " : ""}${a.ts ? ago(a.ts) : ""}</span><div class="txt">${esc(a.body)}</div></div>`).join("")}</div>`;
 }
+const fmtSize = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : n >= 1024 ? Math.round(n / 1024) + " KB" : n + " B";
+function filesBlock(atts) {
+  if (!atts || !atts.length) return "";
+  return `<div class="files">${atts.map((a) => {
+    const gone = a.available === false;
+    const when = a.expires_at ? (gone ? `deleted ${ago(a.expires_at)}` : `kept until ${new Date(a.expires_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}`) : "";
+    return `<button class="file${gone ? " gone" : ""}" ${gone ? "disabled" : `data-file="${esc(a.sha256)}" data-name="${esc(a.name)}" data-mime="${esc(a.mime)}" data-size="${a.size}"`} title="${esc(a.name)} · ${fmtSize(a.size)} · sha256 ${esc(a.sha256.slice(0, 12))}… · ${esc(when)}">📎 <span class="fn">${esc(a.name)}</span><span class="fs">${fmtSize(a.size)}</span></button>`;
+  }).join("")}</div>`;
+}
 function threadCard(t, closed) {
   const k = t.kind;
   const topic = t.topic ? `<span>#${esc(t.topic)}</span>` : "";
@@ -592,7 +624,7 @@ function threadCard(t, closed) {
   const also = t.to && t.to.includes(",") ? `<span title="${esc(t.to)}">+ ${esc(nickTo(t.to.split(",").filter((r) => r !== "@" + OP()).join(",")))}</span>` : "";
   return `<div class="card ${k}${closed ? " done" : ""}" id="t-${t.id}">
     <div class="meta"><span class="tag ${k}">${k}</span><span class="who2" title="${esc(t.from)}">${esc(nick(t.from))}</span>${also}${topic}<span>${ago(t.ts)}</span><span class="id idlink" data-id="${t.id}">${t.id}</span></div>
-    <div class="body">${esc(t.body)}</div>${extra}${discussion(t)}${foot}</div>`;
+    <div class="body">${esc(t.body)}</div>${filesBlock(t.attachments)}${extra}${discussion(t)}${foot}</div>`;
 }
 // Re-rendering replaces nodes: that drops focus from a box being typed in and removes the
 // node the browser anchors scrolling to. So: don't rebuild the inbox while it's being typed
@@ -742,7 +774,7 @@ function evRow(e) {
   return `<div class="ev ${esc(cls)}" data-id="${esc(e.id)}">
     <div class="ts" title="${esc(e.ts)}">${hhmm(e.ts)}</div>
     <div><div class="head"><span class="nm"${addressable ? ` data-to="@${esc(e.from)}" title="${esc(e.from)} · click to write to it"` : ` title="${esc(e.from)}"`}>${esc(nick(e.from))}</span><span class="rcpt" title="${esc(e.to)}">→ ${esc(nickTo(e.to))}</span><span class="k">${esc(e.kind)}</span><span class="idlink" data-id="${esc(e.id)}">${esc(e.id)}</span>${ref}${topic}</div>
-    <div class="txt">${esc(e.body)}${esc(extra)}</div><span class="more">more ▾</span></div></div>`;
+    <div class="txt">${esc(e.body)}${esc(extra)}</div><span class="more">more ▾</span>${filesBlock(e.attachments)}</div></div>`;
 }
 // mark rows whose text is clamped, so they show "more"
 function markLong(root) {
@@ -950,7 +982,8 @@ async function openReader(handle) {
   try {
     const d = await api(`/api/handoffs/${encodeURIComponent(handle)}`);
     if (!d.notes.length) return toast("no handoff notes yet");
-    reader = { handle, notes: d.notes, i: 0 }; paintReader(); $("#reader").hidden = false; $("#reader").scrollTop = 0;
+    reader = { handle, notes: d.notes, i: 0 }; $("#rdTitle").textContent = "Handoff"; $("#rdOlder").hidden = $("#rdNewer").hidden = false; $("#rdDl").hidden = true;
+    $("#rdNote").className = "note"; paintReader(); $("#reader").hidden = false; $("#reader").scrollTop = 0;
     history.pushState({ reader: 1 }, "");  // the phone's back button closes it
   } catch (e) { toast("couldn't load: " + e.message); }
 }
@@ -961,6 +994,36 @@ function paintReader() {
   $("#rdOlder").disabled = reader.i >= reader.notes.length - 1; $("#rdNewer").disabled = reader.i === 0;
 }
 function stepReader(d) { reader.i = Math.max(0, Math.min(reader.notes.length - 1, reader.i + d)); paintReader(); $("#reader").scrollTop = 0; }
+// ---- files: markdown rendered (and sanitized), text as text, images inline, PDFs in a tab ----
+const isMd = (name, mime) => /\.(md|markdown)$/i.test(name) || mime === "text/markdown";
+const isText = (mime) => /^text\//.test(mime) || /json|yaml|toml|xml|x-sh/.test(mime);
+async function openFile(sha, name, mime, size) {
+  const url = `/api/files/${sha}`;
+  if (mime === "application/pdf") return window.open(url, "_blank", "noopener");
+  $("#rdTitle").textContent = "File";
+  $("#rdMeta").textContent = `${name} · ${fmtSize(+size)}`;
+  $("#rdOlder").hidden = $("#rdNewer").hidden = true;
+  const dl = $("#rdDl"); dl.hidden = false; dl.href = url; dl.setAttribute("download", name);
+  const box = $("#rdNote"); box.className = "note"; box.textContent = "loading…";
+  $("#reader").hidden = false; $("#reader").scrollTop = 0; history.pushState({ reader: 1 }, "");
+  try {
+    if (/^image\/(png|jpeg|gif|webp)$/.test(mime)) { box.innerHTML = `<img class="whole" alt="${esc(name)}" src="${url}">`; return; }
+    if (!isMd(name, mime) && !isText(mime)) { box.textContent = "This kind of file isn't shown here; download it."; return; }
+    const r = await fetch(url, { credentials: "same-origin" });
+    if (!r.ok) { box.textContent = r.status === 410 ? "This file has been deleted (it's kept for a day after you close its message)." : `couldn't load it (${r.status})`; return; }
+    const text = await r.text();
+    if (isMd(name, mime) && window.marked && window.DOMPurify) {
+      box.className = "note md";
+      box.innerHTML = DOMPurify.sanitize(marked.parse(text, { gfm: true, breaks: false }), { FORBID_TAGS: ["style", "form", "input"], FORBID_ATTR: ["style"] });
+      box.querySelectorAll("a[href]").forEach((a) => { a.target = "_blank"; a.rel = "noopener noreferrer"; });
+    } else { box.className = "note plain"; box.textContent = text; }
+  } catch (e) { box.textContent = "couldn't load it: " + e.message; }
+}
+document.addEventListener("click", (e) => {
+  const f = e.target.closest(".file[data-file]"); if (!f) return;
+  e.stopPropagation(); e.preventDefault();
+  openFile(f.dataset.file, f.dataset.name, f.dataset.mime, f.dataset.size);
+}, true);
 function closeReader() { if ($("#reader").hidden) return; $("#reader").hidden = true; if (history.state && history.state.reader) history.back(); }
 window.addEventListener("popstate", () => { if (!$("#reader").hidden) $("#reader").hidden = true; });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#reader").hidden) closeReader(); });

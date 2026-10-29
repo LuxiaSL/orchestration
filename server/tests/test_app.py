@@ -394,3 +394,47 @@ def test_operator_closes_group_request_and_replies_to_answers_stay_put(client):
     assert client.get("/api/search", params={"q": "#"}, headers=OP).json()["events"] == []
     hits = client.get("/api/search", params={"q": mine["id"][:4]}, headers=OP).json()["events"]
     assert mine["id"] in [e["id"] for e in hits]
+
+
+def test_files_for_the_operator_live_until_a_day_after_closing(client):
+    import base64
+    from datetime import timedelta
+    from orchestra_server import files as F
+    up = lambda name, data, mime="text/markdown": client.post("/api/files", headers=AGENT, json={"name": name, "mime": mime, "data_b64": base64.b64encode(data).decode()})  # noqa: E731
+    r = up("/home/x/notes/plan.md", b"# Plan\n\n- ship it\n")
+    assert r.status_code == 200 and r.json()["name"] == "plan.md"
+    sha = r.json()["sha256"]
+    att = [{"sha256": sha, "name": "plan.md", "size": r.json()["size"], "mime": "text/markdown"}]
+    # an unknown file can't be attached
+    bad = client.post("/api/events", headers=AGENT, json={"from": "scout", "to": "@ada", "kind": "note", "body": "x",
+                                                          "attachments": [{**att[0], "sha256": "0" * 64}]})
+    assert bad.status_code == 422
+    note = client.post("/api/events", headers=AGENT, json={"from": "scout", "to": "@ada", "kind": "note", "body": "the plan", "attachments": att}).json()
+    st = client.get("/api/state", headers=OP).json()
+    card = next(t for t in st["inbox"]["open"] if t["id"] == note["id"])
+    assert card["attachments"][0]["available"] is True
+    got = client.get(f"/api/files/{sha}", headers=OP)
+    assert got.status_code == 200 and got.text.startswith("# Plan") and got.headers["content-type"].startswith("text/plain")
+    assert "sandbox" in got.headers["content-security-policy"] and got.headers["x-content-type-options"] == "nosniff"
+    assert client.get(f"/api/files/{sha}", headers=AGENT).status_code == 403  # only the operator reads files
+    fs = client.app.state.files
+    assert fs.recs[sha].expires_at - fs.recs[sha].uploaded_at > timedelta(days=6)  # open: kept (capped at 7 days)
+    client.post("/api/events", headers=OP, json={"from": "ada", "kind": "ack", "ref": note["id"]})
+    left = fs.recs[sha].expires_at - F.now()
+    assert timedelta(hours=23) < left <= timedelta(hours=24)
+    fs.recs[sha].expires_at = F.now() - timedelta(seconds=1)
+    assert fs.sweep() == 1
+    gone = client.get(f"/api/files/{sha}", headers=OP)
+    assert gone.status_code == 410 and "expired" in gone.text
+    # a file sent to a peer is hashed, never kept; html is served as text
+    h = up("page.html", b"<script>alert(1)</script>", "text/html").json()
+    client.post("/api/events", headers=AGENT, json={"from": "scout", "to": "@cartographer", "kind": "info", "body": "see",
+                                                    "attachments": [{"sha256": h["sha256"], "name": "page.html", "size": h["size"], "mime": "text/html"}]})
+    assert fs.recs[h["sha256"]].deleted_at is not None and client.get(f"/api/files/{h['sha256']}", headers=OP).status_code == 410
+    assert F.Files.serve_as("text/html")[0].startswith("text/plain") and F.Files.serve_as("application/zip") == ("application/octet-stream", False)
+    # an upload nobody claims goes after 15 minutes
+    o = up("orphan.txt", b"lonely", "text/plain").json()
+    fs.recs[o["sha256"]].expires_at = F.now() - timedelta(seconds=1)
+    fs.sweep()
+    assert fs.recs[o["sha256"]].why_deleted == "never attached to a message"
+    assert up("big.bin", b"x" * (F.MAX_FILE + 1), "application/octet-stream").status_code == 413

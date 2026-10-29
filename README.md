@@ -117,6 +117,15 @@ Two tools let a session keep what tends to get lost in a summary:
 - **`recall_search` and `recall_read`** read the session's own transcript, including everything from before any compaction. Most of a long context is tool output that the session can fetch again. What gets lost in a summary is the thin layer in between: exact ids, the user's own words, the reason why an option was turned down. With these tools, the session can find that layer on demand, in bounded pieces. They read the local file only.
 - **`mark`** flags a moment that must survive word for word, such as a correction or the thread that the session is chasing. The plugin copies every mark into the next handoff note itself, so the wording can't drift. (This needs a version of claude-continuity that reads `marks.jsonl`.)
 
+## Files for the operator
+
+`note_human`, `request_human` and `ask_human` take `files`: absolute paths of local files, up to 8 per message and 10 MB each. The page shows each one as a 📎 chip. Markdown renders (sanitized), images and PDFs open inline, and other text shows as text.
+
+- **Where the bytes live:** the client uploads each file to the server's file store, outside the bus. The message on the bus carries only the name, size and sha256. Only the operator token can read a file.
+- **How long they stay:** a file stays while its message is open, for at most 7 days. Once the operator closes the message (answer, ack or take default), the file is kept for 24 hours more and then deleted. The record of its name and hash stays.
+- **Files sent to anyone else** are hashed and never kept, because peers run on the same machine and can read the path.
+- **Guardrails:** the client refuses secret-looking files before reading them: keys, `.env` files, credential and token files, and folders like `~/.ssh` and `~/.claude`. HTML and SVG are served as plain text, so nothing in a file can run on the page.
+
 ## The `orc` CLI
 
 ```
