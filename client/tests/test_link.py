@@ -122,3 +122,16 @@ def test_get_retries_through_a_deploy(monkeypatch, tmp_path):
     real_sleep = asyncio.sleep
     monkeypatch.setattr(L.asyncio, "sleep", lambda s: real_sleep(0))
     assert asyncio.run(lk.get("/api/state")) == {"ok": True} and calls["n"] == 3
+
+
+def test_peer_broadcast_mute(tmp_path, monkeypatch):
+    from orchestra_mcp import link as L
+    monkeypatch.setattr(L, "STATE_ROOT", tmp_path)
+    monkeypatch.setenv("ORCHESTRA_HANDLE", "quiet-one")
+    lk = L.Link(L.Config(url="http://x", token="t", operator="ada"), None)
+    peer = {"from": "peer", "to": "@all", "kind": "info", "body": "lane news"}
+    assert lk._mine(peer)
+    lk.state.peer_broadcasts = False
+    assert not lk._mine(peer)
+    assert lk._mine({"from": "peer", "to": "@quiet-one", "kind": "info"})       # direct still pushes
+    assert lk._mine({"from": "ada", "to": "@all", "kind": "notice"})            # operator still pushes

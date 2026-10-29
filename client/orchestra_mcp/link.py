@@ -174,6 +174,7 @@ class LocalState:
     cursor: int | None = None
     read_cursor: int = 0
     handles: list[str] = field(default_factory=list)  # every handle this session has gone by
+    peer_broadcasts: bool = True  # push peers' @all info/request (off: read() them instead)
     asks: dict[str, OpenAsk] = field(default_factory=dict)  # by client_id
 
     @classmethod
@@ -188,6 +189,7 @@ class LocalState:
                 st.cursor = d.get("cursor")
                 st.read_cursor = d.get("read_cursor", 0)
                 st.handles = list(d.get("handles", []))
+                st.peer_broadcasts = bool(d.get("peer_broadcasts", True))
                 st.asks = {k: OpenAsk(**v) for k, v in d.get("asks", {}).items()}
             except (OSError, json.JSONDecodeError, TypeError) as exc:
                 print(f"orchestra-mcp: local state unreadable ({exc}); starting fresh", file=sys.stderr)
@@ -197,6 +199,7 @@ class LocalState:
         tmp = self.root / "state.json.tmp"
         tmp.write_text(json.dumps({
             "cursor": self.cursor, "read_cursor": self.read_cursor, "handles": self.handles[-10:],
+            "peer_broadcasts": self.peer_broadcasts,
             "asks": {k: vars(v) for k, v in self.asks.items()},
         }, indent=1))
         tmp.replace(self.root / "state.json")
@@ -484,7 +487,11 @@ class Link:
         return set(self.state.handles[-10:]) | {cur}
 
     def _mine(self, ev: dict) -> bool:
-        return any(is_for_me(ev, h, self.operator) for h in self.my_handles()) and ev.get("from") not in self.my_handles()
+        if ev.get("from") in self.my_handles():
+            return False
+        if not self.state.peer_broadcasts and ev.get("to") == "@all" and ev.get("from") != self.operator:
+            return False  # muted by this session: still on the bus for read()
+        return any(is_for_me(ev, h, self.operator) for h in self.my_handles())
 
     async def _on_event(self, ev: dict, hold: list[dict] | None = None) -> None:
         self.state.cursor = max(self.state.cursor or 0, int(ev.get("seq", 0)))

@@ -263,6 +263,16 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         return f"#{e['seq']} {e['id']} {e['from']}→{e['to']} {e['kind']}{topic_}{ref_}: {first}" 
 
     @server.tool()
+    async def push_prefs(
+        peer_broadcasts: Annotated[bool | None, Field(description="Push other sessions' @all info/request posts to you. Off: they stay readable with read(); messages to you and the operator's broadcasts always push.")] = None,
+    ) -> dict:
+        """See or change what gets pushed into this session. Saved for this session."""
+        if peer_broadcasts is not None:
+            link.state.peer_broadcasts = peer_broadcasts
+            link.state.save()
+        return {"peer_broadcasts": link.state.peer_broadcasts}
+
+    @server.tool()
     async def note_human(
         body: Annotated[str, Field(description="What they should see. Lands in their notes; batched into a digest push.")],
         topic: str | None = None,
