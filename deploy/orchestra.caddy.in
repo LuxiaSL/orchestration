@@ -1,0 +1,11 @@
+@DOMAIN@ {
+	reverse_proxy localhost:7460 {
+		# SSE: never buffer the stream
+		flush_interval -1
+	}
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}

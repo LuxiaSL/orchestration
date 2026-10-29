@@ -1,0 +1,24 @@
+[Unit]
+Description=orchestra - thin bus + inbox for parallel claude code sessions
+After=network.target
+
+[Service]
+User=orchestra
+WorkingDirectory=/opt/orchestra/server
+Environment=ORCHESTRA_DATA=/var/lib/orchestra
+Environment=ORCHESTRA_HOST=127.0.0.1
+Environment=ORCHESTRA_PORT=7460
+Environment=ORCHESTRA_OPERATOR=@OPERATOR@
+Environment=ORCHESTRA_VAPID_SUB=@VAPID_SUB@
+ExecStart=/opt/orchestra/server/.venv/bin/orchestra-server
+Restart=always
+RestartSec=3
+MemoryMax=300M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/orchestra
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

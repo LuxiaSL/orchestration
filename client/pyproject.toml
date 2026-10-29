@@ -1,0 +1,27 @@
+[project]
+name = "orchestra-mcp"
+version = "0.1.0"
+description = "Per-session MCP for the orchestra bus: tools + channel push into the session"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=2.0",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+]
+
+[project.scripts]
+orchestra-mcp = "orchestra_mcp.server:main"
+orc = "orchestra_mcp.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["orchestra_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
