@@ -12,6 +12,9 @@ self.addEventListener("push", (event) => {
     icon: "/icon.svg",
     badge: "/icon.svg",
     requireInteraction: !!p.requireInteraction,
+    silent: false,
+    // Android 8+ takes sound/vibration from the site's notification channel; older ones honor this.
+    vibrate: p.kind === "ask" ? [180, 90, 180, 90, 180] : [140, 80, 140],
     actions: p.actions || [],
     data: p,
   }));
