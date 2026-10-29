@@ -98,6 +98,7 @@ def _client_build() -> str:
 
 CLIENT_BUILD = _client_build()
 
+HANDOFF_WATCH_S = 5.0
 CONTINUITY_DIR = Path(os.environ.get("ORCHESTRA_CONTINUITY_DIR")
                       or Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")) / "continuity")
 # the "why" may hold commas ("on request, from the transcript text"): the timestamp is what ends it
@@ -368,6 +369,7 @@ class Link:
         self._tasks = [
             loop.create_task(self._stream_forever()),
             loop.create_task(self._heartbeat_forever()),
+            loop.create_task(self._handoff_watch_forever()),
             loop.create_task(self._deadline_watch_forever()),
         ]
 
@@ -589,6 +591,24 @@ class Link:
         while True:
             await self._beat_once()
             await asyncio.sleep(60)
+
+    async def _handoff_watch_forever(self) -> None:
+        """A new note reaches the page within seconds, not at the next heartbeat (the session tells the operator it's there)."""
+        while True:
+            await asyncio.sleep(HANDOFF_WATCH_S)
+            sid = self.me.session_id
+            if not sid:
+                continue
+            try:
+                if (CONTINUITY_DIR / sid / "latest.md").stat().st_mtime <= self.state.handoff_mtime:
+                    continue
+            except OSError:
+                continue
+            async with self._beat_lock:
+                try:
+                    await self._sync_handoff(self.me)
+                except Exception as exc:
+                    print(f"orchestra-mcp: handoff sync failed ({exc!r})", file=sys.stderr)
 
     async def _deadline_watch_forever(self) -> None:
         """Take defaults locally if the server can't tell us (invariant 1, offline half)."""
