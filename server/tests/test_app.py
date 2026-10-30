@@ -259,6 +259,27 @@ def test_telemetry_usage_and_volume(client):
     assert sum(b["total"] for b in t["volume"]) == 4
 
 
+def test_continuity_costs_beside_the_sessions_own(client, tmp_path):
+    now_ = datetime.now(UTC).isoformat()
+    rows = [{"ts": now_, "what": "note", "why": "before a manual compaction", "model": "claude-opus-5-5",
+             "usage": {"input_tokens": 3, "output_tokens": 3000, "cache_read_input_tokens": 90000, "cache_creation_input_tokens": 500}},
+            {"ts": now_, "what": "compaction", "why": "manual",
+             "usage": {"input_tokens": 100, "output_tokens": 2000, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}},
+            {"ts": "2026-01-01T00:00:00Z", "what": "note-transcript", "usage": {"input_tokens": 150000}}]  # outside the window
+    for out in (100, 900):
+        assert client.post("/api/presence", headers=AGENT, json={"handle": "atlas", "session_id": "s1", "continuity": rows,
+            "usage": {"output": out, "turns": out // 100, "input": out, "cache_read": out * 50, "context": 5}}).status_code == 200
+    t = client.get("/api/telemetry", params={"hours": 1}, headers=OP).json()
+    (c,) = t["continuity"]
+    assert (c["notes"], c["fallbacks"], c["compactions"]) == (1, 0, 1)
+    assert c["output"] == 5000 and c["cache_read"] == 90000 and c["input"] == 103
+    assert c["session"]["output"] == 800
+    assert client.get("/api/state", headers=OP).json()["presence"][0].get("continuity") is None
+    assert (tmp_path / "continuity-costs.json").exists()
+    bad = client.post("/api/presence", headers=AGENT, json={"handle": "atlas", "continuity": [{"ts": now_, "what": "other", "usage": {}}]})
+    assert bad.status_code == 422
+
+
 def test_bridge_and_usage_are_operator_only(client):
     client.post("/api/presence", headers=AGENT, json={"handle": "atlas", "session_id": "s1", "channel": True,
         "bridge": "session_01AbCdEfGhIjKlMn", "usage": {"output": 5, "context": 1234, "turns": 1}})

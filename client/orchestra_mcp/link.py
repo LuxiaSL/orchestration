@@ -125,6 +125,25 @@ def read_handoff(session_id: str | None, after_mtime: float) -> dict | None:
     return {"mtime": mtime, "why": why, "written_at": at, "text": text.strip()[:64_000]}
 
 
+def read_costs(session_id: str | None, limit: int = 200) -> list[dict]:
+    """continuity's own model requests for this session (costs.jsonl, newest last): never in the transcript, so sent apart."""
+    if not session_id:
+        return []
+    rows = []
+    try:
+        lines = (CONTINUITY_DIR / session_id / "costs.jsonl").read_text(errors="replace").splitlines()
+    except OSError:
+        return []
+    for line in lines[-limit:]:
+        try:
+            r = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(r, dict) and isinstance(r.get("usage"), dict) and r.get("what") in ("note", "note-transcript", "compaction"):
+            rows.append({k: r[k] for k in ("ts", "what", "why", "model", "usage") if r.get(k) is not None})
+    return rows
+
+
 _ID_RE = re.compile(r"\b[amnr][0-9a-f]{6}\b")
 
 
@@ -600,6 +619,7 @@ class Link:
                 "cwd": ident.cwd, "status": ident.status, "host": ident.host,
                 "channel": self.notify is not None,
                 **({"usage": usage.wire()} if usage else {}),
+                **({"continuity": costs} if (costs := read_costs(ident.session_id)) else {}),
                 **({"bridge": ident.bridge} if ident.bridge else {}),
                 **({"cursor": self.state.cursor} if self.state.cursor is not None else {}),
                 "build": CLIENT_BUILD,

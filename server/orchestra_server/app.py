@@ -282,9 +282,11 @@ def create_app(settings: Settings) -> FastAPI:
     async def presence(p: PresenceIn, who: Principal = Depends(principal)) -> dict:
         if who != "agent":
             raise HTTPException(403, "presence is for sessions")
-        bus.touch(p)
+        bus.touch(p.model_copy(update={"continuity": None}))  # cost rows live in telemetry, not on the presence row
         if p.usage is not None:
             tel.record(p.handle, p.session_id, Usage.model_validate(p.usage.model_dump()))
+        if p.continuity:
+            tel.record_costs(p.handle, p.session_id, p.continuity)
         return {"ok": True, "head": bus.head}
 
     @app.get("/api/presence/{handle}")

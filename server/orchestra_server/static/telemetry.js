@@ -241,6 +241,32 @@
     return c;
   }
 
+  // ---- continuity's own requests: a note's fork (should read the session's cache), its transcript fallback (can't), and the
+  // compaction's summary. None of these are in a transcript, so the tokens card above never counts them.
+  // Weight: API price ratios (uncached input 1, cache write 1.25, cache read 0.1, output 5), a rough stand-in for usage limits.
+  const weigh = (u) => u.input + 1.25 * u.cache_write + 0.1 * u.cache_read + 5 * u.output;
+  const hitPct = (u) => { const all = u.input + u.cache_read + u.cache_write; return all ? Math.round(100 * u.cache_read / all) + "%" : "—"; };
+  function continuityCard(d) {
+    const c = card("Continuity's cost", "handoff notes and compactions, which no transcript records · hit = share of input read from the prompt cache · share = their weight beside the session's own turns (API price ratios)", true);
+    const rows = d.continuity || [];
+    if (!rows.length) { c.append(el("div", { class: "empty", text: "no notes or compactions in this range (sessions report them on the heartbeat)" })); return c; }
+    const t = el("table", { class: "tt" });
+    t.append(el("thead", {}, el("tr", {}, ...["session", "notes", "fallbacks", "compactions", "cache hit", "session's hit", "output", "share"].map((h) => el("th", { text: h })))));
+    const tb = el("tbody");
+    const sum = { input: 0, output: 0, cache_read: 0, cache_write: 0 }, own = { input: 0, output: 0, cache_read: 0, cache_write: 0 };
+    for (const r of rows) {
+      for (const k in sum) { sum[k] += r[k]; if (r.session) own[k] += r.session[k]; }
+      const share = r.session && weigh(r.session) ? Math.round(100 * weigh(r) / (weigh(r) + weigh(r.session))) + "%" : "—";
+      tb.append(el("tr", {}, ...[r.handle, r.notes, r.fallbacks, r.compactions, hitPct(r), r.session ? hitPct(r.session) : "—", fmtN(r.output), share].map((v) => el("td", { text: String(v) }))));
+    }
+    const all = weigh(sum) + weigh(own);
+    tb.append(el("tr", { class: "total" }, ...["all", rows.reduce((a, r) => a + r.notes, 0), rows.reduce((a, r) => a + r.fallbacks, 0), rows.reduce((a, r) => a + r.compactions, 0), hitPct(sum), hitPct(own), fmtN(sum.output), all ? Math.round(100 * weigh(sum) / all) + "%" : "—"].map((v) => el("td", { text: String(v) }))));
+    t.append(tb);
+    c.append(el("div", { class: "mxwrap" }, t));
+    c.append(tableView(["session", "uncached input", "cache read", "cache write", "output"], rows.map((r) => [r.handle, r.input, r.cache_read, r.cache_write, r.output])));
+    return c;
+  }
+
   function render() {
     if (!data) return;
     const body = $("#telemBody");
@@ -249,7 +275,7 @@
     vol.append(volumeChart(data, width - 34));
     vol.append(tableView(["interval start", "messages", ...data.kinds],
       data.volume.filter((b) => b.total).map((b) => [new Date(b.t).toLocaleString(), b.total, ...data.kinds.map((k) => b.by_kind[k] || 0)])));
-    body.replaceChildren(tiles(data), el("div", { class: "tgrid" }, vol, tokensCard(data, width - 34), matrixCard(data), latencyCard(data)));
+    body.replaceChildren(tiles(data), el("div", { class: "tgrid" }, vol, tokensCard(data, width - 34), continuityCard(data), matrixCard(data), latencyCard(data)));
     body.classList.remove("loading");
     $("#tUpd").textContent = `updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · refreshes every minute`;
   }

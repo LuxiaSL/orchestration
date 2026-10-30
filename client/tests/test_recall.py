@@ -110,3 +110,16 @@ def test_pushed_messages_are_kept_for_the_quote_check(tmp_path: Path, monkeypatc
     rows = [json.loads(l) for l in (tmp_path / "sid-3" / "channel.jsonl").read_text().splitlines()]
     assert rows[-1]["text"] == "i like my claudes #11" and rows[-1]["from"] == "ada"
     assert len(rows) < 12 and (tmp_path / "sid-3" / "channel.jsonl").stat().st_size <= 600 + 100
+
+
+def test_continuity_costs_are_read_for_the_heartbeat(tmp_path: Path, monkeypatch):
+    from orchestra_mcp import link as L
+    monkeypatch.setattr(L, "CONTINUITY_DIR", tmp_path)
+    (tmp_path / "sid-4").mkdir()
+    (tmp_path / "sid-4" / "costs.jsonl").write_text(
+        '{"ts":"2026-10-30T01:00:00Z","what":"note","why":"on request","model":"m","usage":{"output_tokens":9}}\n'
+        'torn\n{"what":"other","usage":{}}\n'
+        '{"ts":"2026-10-30T01:05:00Z","what":"compaction","why":"manual","usage":{"input_tokens":4}}\n')
+    rows = L.read_costs("sid-4")
+    assert [r["what"] for r in rows] == ["note", "compaction"] and rows[0]["usage"]["output_tokens"] == 9
+    assert L.read_costs("nope") == [] and L.read_costs(None) == []

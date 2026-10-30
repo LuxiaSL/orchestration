@@ -206,6 +206,23 @@ class UsageIn(BaseModel):
     last_ts: str | None = Field(default=None, max_length=40)
 
 
+class CostUsage(BaseModel):
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    cache_read_input_tokens: int = Field(default=0, ge=0)
+    cache_creation_input_tokens: int = Field(default=0, ge=0)
+
+
+class CostRow(BaseModel):
+    """One model request continuity made (a note's fork, its transcript fallback, a compaction's summary), from costs.jsonl."""
+
+    ts: datetime
+    what: Literal["note", "note-transcript", "compaction"]
+    why: str | None = Field(default=None, max_length=120)
+    model: str | None = Field(default=None, max_length=80)
+    usage: CostUsage
+
+
 class PresenceIn(BaseModel):
     handle: str
     session_id: str | None = None
@@ -215,6 +232,7 @@ class PresenceIn(BaseModel):
     host: str | None = None
     channel: bool = False
     usage: UsageIn | None = None
+    continuity: list[CostRow] | None = Field(default=None, max_length=200, description="continuity's own model requests, newest last")
     cursor: int | None = Field(default=None, ge=0, description="last bus seq this session has taken in")
     build: str | None = Field(default=None, pattern=r"^[0-9a-f]{6,16}$", description="client source hash")
     bridge: str | None = Field(default=None, pattern=r"^session_[A-Za-z0-9]{8,64}$",

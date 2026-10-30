@@ -9,6 +9,7 @@ value starts a fresh run rather than producing a negative rate.
 
 from __future__ import annotations
 
+import json
 import math
 import statistics
 import sys
@@ -19,7 +20,7 @@ from pathlib import Path
 from pydantic import BaseModel, ValidationError
 
 from .bus import Bus, now
-from .models import is_to, recipients
+from .models import CostRow, is_to, recipients
 
 RETAIN_DAYS = 8
 MAX_BUCKETS = 120
@@ -49,7 +50,38 @@ class Telemetry:
         self.path = path
         self.samples: list[Sample] = []
         self._last: dict[str, Usage] = {}  # by session id
+        # continuity's own model requests (never in a transcript), by session id: (handle, rows); kept beside the samples
+        self.costs_path = path.with_name("continuity-costs.json")
+        self.costs: dict[str, tuple[str, list[CostRow]]] = {}
         self._load()
+        self._load_costs()
+
+    def _load_costs(self) -> None:
+        if not self.costs_path.exists():
+            return
+        try:
+            raw = json.loads(self.costs_path.read_text())
+            self.costs = {sid: (v["handle"], [CostRow.model_validate(r) for r in v["rows"]]) for sid, v in raw.items()}
+        except (OSError, ValueError, KeyError, TypeError, ValidationError) as exc:
+            print(f"orchestra: continuity costs unreadable ({exc}); starting empty", file=sys.stderr)
+
+    def record_costs(self, handle: str, session_id: str | None, rows: list[CostRow]) -> None:
+        """The client resends its session's recent rows each heartbeat; keep the newest set, write only on change."""
+        if not session_id:
+            return
+        cutoff = now() - timedelta(days=RETAIN_DAYS)
+        rows = sorted((r for r in rows if r.ts >= cutoff), key=lambda r: r.ts)
+        prev = self.costs.get(session_id)
+        if prev is not None and prev[0] == handle and prev[1] == rows:
+            return
+        self.costs[session_id] = (handle, rows)
+        tmp = self.costs_path.with_suffix(".tmp")
+        try:
+            tmp.write_text(json.dumps({sid: {"handle": h, "rows": [r.model_dump(mode="json") for r in rs]}
+                                       for sid, (h, rs) in self.costs.items()}))
+            tmp.replace(self.costs_path)
+        except OSError as exc:
+            print(f"orchestra: continuity costs write failed: {exc}", file=sys.stderr)
 
     def _load(self) -> None:
         if not self.path.exists():
@@ -168,6 +200,26 @@ def summarize(bus: Bus, tel: Telemetry, hours: float) -> dict:
     sess = sorted((r for r in sessions.values() if r["latest"] and r["latest"]["ts"] >= (start - timedelta(days=1)).isoformat()),
                   key=lambda r: -r["window"]["output"])
 
+    # continuity's own requests in the window, per handle and kind, beside each session's own turns
+    cont: dict[str, dict] = {}
+    for sid, (handle, rows) in tel.costs.items():
+        for r in rows:
+            if r.ts < start:
+                continue
+            c = cont.setdefault(handle, {"handle": handle, "notes": 0, "fallbacks": 0, "compactions": 0,
+                                         "input": 0, "output": 0, "cache_read": 0, "cache_write": 0})
+            c["notes" if r.what == "note" else "fallbacks" if r.what == "note-transcript" else "compactions"] += 1
+            u = r.usage
+            c["input"] += u.input_tokens
+            c["output"] += u.output_tokens
+            c["cache_read"] += u.cache_read_input_tokens
+            c["cache_write"] += u.cache_creation_input_tokens
+    own = {r["handle"]: r["window"] for r in sess}
+    for c in cont.values():
+        w = own.get(c["handle"])
+        c["session"] = {k: w[k] for k in ("input", "output", "cache_read", "cache_write")} if w else None
+    continuity = sorted(cont.values(), key=lambda c: -(c["input"] + c["cache_read"] + c["cache_write"]))
+
     kinds = sorted({k for c in volume for k in c})
     return {
         "from": start.isoformat(), "to": t1.isoformat(), "bucket_s": bucket_s, "buckets": n,
@@ -188,4 +240,5 @@ def summarize(bus: Bus, tel: Telemetry, hours: float) -> dict:
         "outcomes": dict(outcomes),
         "avg_chars": {k: round(sum(v) / len(v)) for k, v in chars.items()},
         "sessions": sess,
+        "continuity": continuity,
     }
