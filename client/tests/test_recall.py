@@ -95,3 +95,18 @@ def test_owed_and_read_since_a_time(tmp_path: Path, monkeypatch):
     got = asyncio.run(go("read", {"since": "2026-10-29T13:30Z"}))
     assert [l.split()[1] for l in got["events"]] == ["m000004", "m000005"]
     assert asyncio.run(go("read", {"since": "2026-10-30T00:00Z"}))["events"] == []
+
+
+def test_pushed_messages_are_kept_for_the_quote_check(tmp_path: Path, monkeypatch):
+    from orchestra_mcp import link as L
+    monkeypatch.setattr(L, "CONTINUITY_DIR", tmp_path)
+    monkeypatch.setattr(L, "STATE_ROOT", tmp_path / "state")
+    monkeypatch.setattr(L, "CHANNEL_KEEP_BYTES", 600)
+    monkeypatch.setattr(L.Link, "me", property(lambda self: type("I", (), {"session_id": "sid-3", "handle": "scout"})()))
+    lk = L.Link(L.Config(url="http://x", token="t", operator="ada"))
+    for i in range(12):
+        lk._remember_heard({"id": f"m{i:06d}", "from": "ada", "kind": "notice", "body": f"i like my claudes #{i}", "ts": "t"})
+    lk._remember_heard({"id": "m999999", "from": "ada", "kind": "ack", "body": ""})  # nothing to quote: skipped
+    rows = [json.loads(l) for l in (tmp_path / "sid-3" / "channel.jsonl").read_text().splitlines()]
+    assert rows[-1]["text"] == "i like my claudes #11" and rows[-1]["from"] == "ada"
+    assert len(rows) < 12 and (tmp_path / "sid-3" / "channel.jsonl").stat().st_size <= 600 + 100

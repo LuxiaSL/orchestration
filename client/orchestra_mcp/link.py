@@ -99,6 +99,7 @@ def _client_build() -> str:
 CLIENT_BUILD = _client_build()
 
 HANDOFF_WATCH_S = 5.0
+CHANNEL_KEEP_BYTES = 2 * 1024 * 1024
 CONTINUITY_DIR = Path(os.environ.get("ORCHESTRA_CONTINUITY_DIR")
                       or Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")) / "continuity")
 # the "why" may hold commas ("on request, from the transcript text"): the timestamp is what ends it
@@ -500,7 +501,30 @@ class Link:
             {"source": "orchestra", "kind": "catchup", "count": str(len(held))},
         )
 
+    def _remember_heard(self, ev: dict) -> None:
+        """Keep what was pushed into the session beside its continuity notes (channel.jsonl), so the plugin can check a
+        note's quotes against messages that arrived over the bus: the engine files those apart from typed turns."""
+        sid = self.me.session_id
+        body = (ev.get("body") or "").strip()
+        if not sid or not body:
+            return
+        row = {"ts": ev.get("ts"), "id": ev.get("id"), "from": ev.get("from"), "kind": ev.get("kind"), "text": body,
+               **({"choice": ev["choice"]} if ev.get("choice") else {})}
+        f = CONTINUITY_DIR / sid / "channel.jsonl"
+        try:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            with f.open("a") as out:
+                out.write(json.dumps(row, ensure_ascii=False) + "\n")
+            if f.stat().st_size > CHANNEL_KEEP_BYTES:  # keep the newest half; the plugin reads at most 4 MiB
+                lines = f.read_text(errors="replace").splitlines()
+                tmp = f.with_suffix(".tmp")
+                tmp.write_text("\n".join(lines[len(lines) // 2:]) + "\n")
+                tmp.replace(f)
+        except OSError as exc:
+            print(f"orchestra-mcp: channel log write failed ({exc})", file=sys.stderr)
+
     async def _push_event(self, ev: dict) -> None:
+        self._remember_heard(ev)
         digest = ev.get("to") == "@all" and ev.get("from") != self.operator and ev.get("kind") in ("info", "request")
         await self._push(render(ev, self.operator) + ("" if digest else mention_hint(ev)), {
             "source": "orchestra", "kind": str(ev.get("kind")), "from": str(ev.get("from")),
