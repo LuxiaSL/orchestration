@@ -108,6 +108,19 @@ main { display: grid; grid-template-columns: clamp(210px, 16vw, 264px) minmax(0,
 .who[aria-pressed="true"] .sub, .who[aria-pressed="true"] .nm { color: var(--bg); }
 .who[aria-pressed="true"] .meter { border-color: var(--bg); } .who[aria-pressed="true"] .meter i { background: var(--bg); }
 .who[aria-pressed="true"] .act { background: var(--fg); color: var(--bg); border-color: var(--bg); }
+.grp { display: flex; align-items: center; gap: 2px; margin: 10px 0 2px; }
+.grp .gfold { background: none; border: 0; color: var(--muted); cursor: pointer; width: 18px; padding: 2px 0; font-size: 13px; flex: none; }
+.grp .gname { background: none; border: 1px solid transparent; color: var(--fg); cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 700; letter-spacing: .04em; padding: 1px 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grp .gname:hover { border-color: var(--fg); }
+.grp .gname[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.grp .gn { font-size: 11.5px; color: var(--faint); margin-left: auto; padding-right: 6px; white-space: nowrap; }
+.gbody { padding-left: 4px; border-left: 1px solid var(--line); margin-left: 8px; }
+#gstrip { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 6px 0; }
+#gstrip:empty { display: none; }
+#gstrip .gname { background: var(--chip); border: 1px solid var(--line); color: var(--fg); cursor: pointer; font: inherit; font-size: 12px; padding: 1px 7px; }
+#gstrip .gname[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.who .tg { color: var(--faint); }
+.tochip.grp { background: var(--bg); color: var(--fg); max-width: 26ch; }
 .rgroup { font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin: 14px 6px 2px; }
 .rfoot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
 .rfoot .two { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -409,6 +422,7 @@ details.tv .scroll { max-height: 280px; overflow: auto; margin-top: 6px; }
       <div class="sec-h"><h2>Sessions</h2><span class="n" id="liveCount"></span></div>
       <div class="list">
         <button class="who all" data-to="@all" aria-pressed="true"><span class="g">✱</span><span class="nm">everyone</span><span></span></button>
+        <div id="gstrip" aria-label="groups"></div>
         <div id="sessions"></div>
       </div>
       <div class="rfoot">
@@ -882,12 +896,13 @@ function rosterRow(p) {
     ? `<span class="stale" title="running older orchestra code (${esc(p.build || "pre-build")}); in that session run /mcp reconnect orchestra (works from the Claude app too)">reconnect</span>` : "";
   const what = p.live ? (p.channel ? esc(p.status || "live") : "no push")
     : `away ${ago(p.last_seen).replace(" ago", "")}${p.waiting ? ` · <b>${p.waiting} held</b>` : ""}`;
-  const acts = (p.handoff_at ? `<span class="act" role="button" data-ho="${esc(p.handle)}" title="handoff note written ${esc(ago(p.handoff_at))} (continuity)">✎</span>` : "")
+  const acts = `<span class="act" role="button" data-tag="${esc(p.handle)}" title="groups: ${esc((p.tags || []).map((t) => "#" + t).join(" ") || "none")} (click to edit)">#</span>`
+    + (p.handoff_at ? `<span class="act" role="button" data-ho="${esc(p.handle)}" title="handoff note written ${esc(ago(p.handoff_at))} (continuity)">✎</span>` : "")
     + (p.bridge && p.live ? `<a class="act" href="https://claude.ai/code/${encodeURIComponent(p.bridge)}" target="_blank" rel="noopener" title="open this session in the Claude app (Remote Control): /compact, /context, /model work there">↗</a>` : "");
   const on = toList().includes("@" + p.handle);
   return `<button class="who${p.live ? "" : " off"}" data-to="@${esc(p.handle)}" aria-pressed="${on}" title="${esc(p.handle)}${p.cwd ? " · " + esc(p.cwd) : ""}${p.live ? "" : " · messages wait until it's back"}">
     <span class="g">${glyph(p)}</span><span class="nm">${esc(nick(p.handle))}</span><span class="acts">${acts}</span>
-    <span class="sub">${stale}<span class="s">${what}</span>${meter}${ctx ? `<span>${fmtCtx(ctx)}</span>` : ""}</span></button>`;
+    <span class="sub">${stale}<span class="s">${what}</span>${meter}${ctx ? `<span>${fmtCtx(ctx)}</span>` : ""}${(p.tags || []).slice(1).map((t) => `<span class="tg">#${esc(t)}</span>`).join("")}</span></button>`;
 }
 function renderSessions() {
   computeNicks();
@@ -895,15 +910,89 @@ function renderSessions() {
   const ps = [...state.presence].sort((a, b) => (b.live - a.live) || b.last_seen.localeCompare(a.last_seen));
   const live = ps.filter((p) => p.live), away = ps.filter((p) => !p.live);
   $("#liveCount").textContent = `${live.length} live`;
+  gidx = groupsIndex();
+  // a session sits in the container of its first tag; its other tags are groups too, offered in the strip above
+  const tree = { kids: new Map(), rows: [] }, loose = [];
+  for (const p of ps) {
+    const t = (p.tags || [])[0];
+    if (!t) { loose.push(p); continue; }
+    let node = tree, path = "";
+    for (const part of t.split("/")) {
+      path = path ? path + "/" + part : part;
+      if (!node.kids.has(part)) node.kids.set(part, { path, kids: new Map(), rows: [] });
+      node = node.kids.get(part);
+    }
+    node.rows.push(p);
+  }
+  const inTree = new Set(), walk = (n) => n.kids.forEach((k) => { inTree.add(k.path); walk(k); }); walk(tree);
+  $("#gstrip").innerHTML = [...gidx.keys()].filter((g) => !inTree.has(g)).sort()
+    .map((g) => `<button class="gname" data-group="${esc(g)}" title="select the ${gidx.get(g).size} sessions in #${esc(g)}">#${esc(g)}</button>`).join("");
+  const looseLive = loose.filter((p) => p.live), looseAway = loose.filter((p) => !p.live);
   $("#sessions").innerHTML = ps.length
-    ? live.map(rosterRow).join("") + (away.length ? `<div class="rgroup">away</div>` + away.map(rosterRow).join("") : "")
+    ? renderTree(tree, 0) + (tree.kids.size && looseLive.length ? `<div class="rgroup">ungrouped</div>` : "") + looseLive.map(rosterRow).join("")
+      + (looseAway.length ? `<div class="rgroup">away</div>` + looseAway.map(rosterRow).join("") : "")
     : `<div class="empty">no sessions have checked in</div>`;
   paintCompose();
   const pushOk = state.push && state.push.subscriptions > 0;
   $("#meta").innerHTML = `<span>${live.length} live</span><span class="wide"> · bus #${state.head}</span><span class="wide"> · push ${pushOk ? "on" : "off"}</span>`;
 }
+// ---- groups: the operator's tags on sessions ('kotodama/training'); every prefix of a tag is a group too ----
+let gidx = new Map();
+const folded = new Set((() => { try { return JSON.parse(recall("orc-folded") || "[]"); } catch { return []; } })());
+function groupsIndex() {
+  const g = new Map();
+  for (const p of state.presence) for (const t of p.tags || []) {
+    const parts = t.split("/");
+    for (let i = 1; i <= parts.length; i++) {
+      const k = parts.slice(0, i).join("/");
+      if (!g.has(k)) g.set(k, new Set());
+      g.get(k).add("@" + p.handle);
+    }
+  }
+  return g;
+}
+const groupOn = (g) => { const m = gidx.get(g); return !!m && [...m].every((h) => toList().includes(h)); };
+function renderTree(node, depth) {
+  let html = "";
+  for (const [name, kid] of [...node.kids].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const m = gidx.get(kid.path) || new Set(), on = state.presence.filter((p) => p.live && m.has("@" + p.handle)).length;
+    const open = !folded.has(kid.path);
+    html += `<div class="grp" style="--d:${depth}"><button class="gfold" data-fold="${esc(kid.path)}" aria-expanded="${open}" title="${open ? "fold" : "unfold"}">${open ? "▾" : "▸"}</button>`
+      + `<button class="gname" data-group="${esc(kid.path)}" aria-pressed="${groupOn(kid.path)}" title="select all ${m.size} in #${esc(kid.path)}">#${esc(name)}</button><span class="gn">${on}/${m.size} live</span></div>`;
+    if (open) html += `<div class="gbody" style="--d:${depth + 1}">${renderTree(kid, depth + 1)}${kid.rows.map(rosterRow).join("")}</div>`;
+  }
+  return html;
+}
+function toggleGroup(g) {
+  const m = [...(gidx.get(g) || [])]; if (!m.length) return;
+  const cur = toList(), next = groupOn(g) ? cur.filter((h) => !m.includes(h)) : [...cur, ...m.filter((h) => !cur.includes(h))];
+  setTo(next.length ? next.join(",") : "@all");
+}
+// the selection as chips: a whole group (2+ sessions) shows as one chip, largest first; the rest by name
+function chipGroups() {
+  const sel = new Set(toList()), used = new Set(), groups = [];
+  const full = [...gidx].filter(([, m]) => m.size >= 2 && [...m].every((h) => sel.has(h)))
+    .sort((a, b) => b[1].size - a[1].size || a[0].length - b[0].length);
+  for (const [g, m] of full) { if ([...m].some((h) => used.has(h))) continue; groups.push([g, m]); m.forEach((h) => used.add(h)); }
+  return { groups, rest: toList().filter((h) => !used.has(h)) };
+}
+async function editTags(handle) {
+  const p = state.presence.find((x) => x.handle === handle); if (!p) return;
+  const known = [...gidx.keys()].sort().map((g) => "#" + g).join(" ");
+  const v = prompt(`Groups for ${handle}: comma-separated, nested with / (e.g. kotodama/training, gpu). The first one is where it sits.${known ? "\nIn use: " + known : ""}`, (p.tags || []).join(", "));
+  if (v === null) return;
+  try {
+    const r = await api(`/api/tags/${encodeURIComponent(handle)}`, { method: "PUT", body: JSON.stringify({ tags: v.split(/[,\s]+/).filter(Boolean) }) });
+    toast(r.tags.length ? `${nick(handle)} → ${r.tags.map((t) => "#" + t).join(" ")}` : `${nick(handle)}: no groups`);
+    await refresh();
+  } catch (e) { toast("tags: " + e.message); }
+}
 $("#roster").addEventListener("click", (e) => {
   if (e.target.closest("a")) return;
+  const tg = e.target.closest("[data-tag]"); if (tg) { e.stopPropagation(); return editTags(tg.dataset.tag); }
+  const fo = e.target.closest("[data-fold]");
+  if (fo) { const g = fo.dataset.fold; folded.has(g) ? folded.delete(g) : folded.add(g); store("orc-folded", folded.size ? JSON.stringify([...folded]) : undefined); return renderSessions(); }
+  const gr = e.target.closest("[data-group]"); if (gr) return toggleGroup(gr.dataset.group);
   const ho = e.target.closest("[data-ho]"); if (ho) { e.stopPropagation(); return openReader(ho.dataset.ho); }
   const w = e.target.closest(".who"); if (!w) return;
   toggleTo(w.dataset.to);
@@ -919,13 +1008,19 @@ function toggleTo(to) {
 }
 function addTo(to) { if (!toList().includes(to)) setTo([...toList(), to].join(",")); }
 const toLabel = () => nickTo(compose.to);
-const toShort = () => { const n = toList().length; return n > 1 ? `${n} sessions` : toLabel(); };
+const toShort = () => {
+  const n = toList().length, { groups, rest } = chipGroups();
+  if (groups.length === 1 && !rest.length) return "#" + groups[0][0];
+  return n > 1 ? `${n} sessions` : toLabel();
+};
 function setKind(k) { compose.kind = k; paintCompose(); }
 function paintCompose() {
   document.querySelectorAll("#roster .who").forEach((w) => w.setAttribute("aria-pressed", w.dataset.to === "@all" ? compose.to === "@all" : toList().includes(w.dataset.to)));
   $("#toLine").innerHTML = compose.to === "@all"
     ? `<span class="tochip all">everyone</span><span class="tohint">${narrow() ? "pick sessions in Sessions" : "pick sessions on the left"}</span>`
-    : toList().map((r) => `<span class="tochip" title="${esc(r)}"><span>${esc(nick(r.slice(1)))}</span><button data-rm="${esc(r)}" title="remove" aria-label="remove ${esc(r)}">×</button></span>`).join("");
+    : (({ groups, rest }) => groups.map(([g, m]) => `<span class="tochip grp" title="#${esc(g)}: ${esc([...m].map((h) => nick(h.slice(1))).join(", "))}"><span>#${esc(g)} · ${m.size}</span><button data-rmg="${esc(g)}" title="remove the group" aria-label="remove #${esc(g)}">×</button></span>`).join("")
+      + rest.map((r) => `<span class="tochip" title="${esc(r)}"><span>${esc(nick(r.slice(1)))}</span><button data-rm="${esc(r)}" title="remove" aria-label="remove ${esc(r)}">×</button></span>`).join(""))(chipGroups());
+  document.querySelectorAll("#roster .gname[data-group]").forEach((b) => b.setAttribute("aria-pressed", groupOn(b.dataset.group)));
   document.querySelectorAll("#kindSeg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.kind === compose.kind));
   $("#kindHint").textContent = KIND_HINT[compose.kind];
   $("#sendTo").textContent = `${compose.kind} → ${toShort()}`;
@@ -935,7 +1030,10 @@ function paintCompose() {
   $("#haltBtn").textContent = "⏸ halt"; $("#haltBtn").title = `halt ${toLabel()}`;
   $("#resumeBtn").textContent = "▶ resume"; $("#resumeBtn").title = `resume ${toLabel()}`;
 }
-$("#toLine").addEventListener("click", (e) => { const b = e.target.closest("[data-rm]"); if (b) toggleTo(b.dataset.rm); });
+$("#toLine").addEventListener("click", (e) => {
+  const g = e.target.closest("[data-rmg]"); if (g) return toggleGroup(g.dataset.rmg);
+  const b = e.target.closest("[data-rm]"); if (b) toggleTo(b.dataset.rm);
+});
 function focusCompose() {
   if (narrow()) showTab("feed");
   $("#msg").focus({ preventScroll: true });

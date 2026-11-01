@@ -21,6 +21,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from .models import CLOSING_KINDS, SYSTEM, is_group, is_to, recipients, THREAD_KINDS, Event, PostIn, Presence, PresenceIn, Thread
+from .groups import Groups, within
 
 PRESENCE_STALE_S = 180
 PRESENCE_KEEP_DAYS = 7
@@ -45,6 +46,7 @@ class Bus:
         self._answer_thread: dict[str, str] = {}  # an answer/reply's id -> the thread it sits in
         self._lock = asyncio.Lock()
         self._subscribers: set[asyncio.Queue[Event]] = set()
+        self.groups: Groups | None = None
         self.on_append: list[Callable[[Event], None]] = []
         self._load()
         self._load_presence()
@@ -130,10 +132,22 @@ class Bus:
             return post.to
         out: list[str] = []
         for r in recipients(post.to):
-            x = self.expand_address(r)
-            if x not in out:
-                out.append(x)
+            xs = self.group_members(r[1:]) if r.startswith("#") else [self.expand_address(r)]
+            if r.startswith("#") and not xs:
+                raise ValueError(f"no sessions are in {r}")
+            for x in xs:
+                if x not in out:
+                    out.append(x)
+        if len(out) > 32:
+            raise ValueError("at most 32 recipients")
         return ",".join(out)
+
+    def group_members(self, group: str) -> list[str]:
+        """@handles of the current sessions tagged `group` or anything under it (set by the app from its Groups)."""
+        if self.groups is None:
+            return []
+        return [f"@{h}" for h, p in sorted(self.presence.items())
+                if not p.renamed_to and any(within(t, group) for t in self.groups.tags_for([h, *p.renamed_from]))]
 
     def expand_address(self, to: str) -> str:
         """@route -> @route-planning-service when that prefix is unique.
@@ -327,6 +341,7 @@ class Bus:
                 continue  # shown under its current name (which lists renamed_from)
             # usage is telemetry and the bridge id opens the session: both are the operator's to see
             d = p.model_dump(mode="json", exclude=None if operator_view else {"usage", "bridge"})
+            d["tags"] = self.groups.tags_for([p.handle, *p.renamed_from]) if self.groups else []
             d["live"] = p.last_seen.timestamp() >= cutoff
             d["waiting"] = 0 if d["live"] else self.waiting_for(p.handle, p.cursor)
             out.append(d)

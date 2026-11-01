@@ -497,3 +497,30 @@ def test_awaiting_lists_open_questions_a_session_owes_and_events_jump_by_time(cl
     cut = client.app.state.bus.events[-2].ts.isoformat()
     got = client.get("/api/events", params={"since_ts": cut}, headers=AGENT).json()["events"]
     assert [e["id"] for e in got] == [later["id"]] and later["seq"] > head
+
+
+def test_groups_tag_sessions_and_address_them(client):
+    for h in ("koto-train", "koto-interp", "heimdall-ops", "pleroma"):
+        client.post("/api/presence", headers=AGENT, json={"handle": h, "session_id": f"sid-{h}", "cursor": 0})
+    put = lambda h, tags, hd=OP: client.put(f"/api/tags/{h}", headers=hd, json={"tags": tags})
+    assert put("koto-train", ["Kotodama/Training", "#gpu"]).json()["tags"] == ["kotodama/training", "gpu"]
+    assert put("koto-interp", ["kotodama/interp"]).status_code == 200
+    assert put("heimdall-ops", ["ops", "gpu"]).status_code == 200
+    assert put("pleroma", ["x"], AGENT).status_code == 403
+    assert put("pleroma", ["bad tag!"]).status_code == 422
+    assert put("nobody", ["x"]).status_code == 404
+    pres = {p["handle"]: p["tags"] for p in client.get("/api/state", headers=OP).json()["presence"]}
+    assert pres["koto-interp"] == ["kotodama/interp"] and pres["pleroma"] == []
+    # a group names every session in it or under it; a subgroup only its own
+    ev = client.post("/api/events", headers=OP, json={"from": "ada", "to": "#kotodama", "kind": "notice", "body": "hi koto"}).json()
+    assert ev["to"] == "@koto-interp,@koto-train"
+    ev = client.post("/api/events", headers=AGENT, json={"from": "pleroma", "to": "#kotodama/interp,#gpu", "kind": "request", "body": "?"}).json()
+    assert ev["to"] == "@koto-interp,@heimdall-ops,@koto-train"
+    assert client.post("/api/events", headers=OP, json={"from": "ada", "to": "#empty", "kind": "notice", "body": "x"}).status_code == 422
+    # tags follow a rename
+    client.post("/api/presence", headers=AGENT, json={"handle": "koto-train-2", "session_id": "sid-koto-train", "cursor": 0})
+    pres = {p["handle"]: p["tags"] for p in client.get("/api/state", headers=OP).json()["presence"]}
+    assert pres["koto-train-2"] == ["kotodama/training", "gpu"] and "koto-train" not in pres
+    ev = client.post("/api/events", headers=OP, json={"from": "ada", "to": "#kotodama/training", "kind": "notice", "body": "x"}).json()
+    assert ev["to"] == "@koto-train-2"
+    assert client.get("/api/presence/koto-train-2", headers=AGENT).json()["groups"] == ["kotodama/training", "gpu"]

@@ -27,6 +27,7 @@ THREAD_KINDS: frozenset[str] = frozenset({"ask", "request", "note"})
 CLOSING_KINDS: frozenset[str] = frozenset({"answer", "ack", "defaulted", "withdraw"})
 
 HANDLE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+GROUP_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}(/[a-z0-9][a-z0-9._-]{0,31}){0,3}$")
 
 
 def recipients(to: str) -> list[str]:
@@ -118,9 +119,16 @@ class PostIn(BaseModel):
             raise ValueError("empty address")
         out: list[str] = []
         for p in parts:
+            if p.startswith("#") or p.startswith("@#"):  # a group: expanded to its sessions when posted
+                p = "#" + p.lstrip("@#").lower().strip("/")
+                if not GROUP_RE.match(p[1:]):
+                    raise ValueError(f"bad group {p!r}: #name or #name/sub")
+                if p not in out:
+                    out.append(p)
+                continue
             p = p if p.startswith("@") else "@" + p
             if p != "@all" and not HANDLE_RE.match(p[1:]):
-                raise ValueError(f"bad address {p!r}: use @all, @<handle>, or several handles separated by commas")
+                raise ValueError(f"bad address {p!r}: use @all, @<handle>, #<group>, or several separated by commas")
             if p not in out:
                 out.append(p)
         if "@all" in out and len(out) > 1:
@@ -204,6 +212,10 @@ class UsageIn(BaseModel):
     context: int = 0
     model: str | None = Field(default=None, max_length=80)
     last_ts: str | None = Field(default=None, max_length=40)
+
+
+class TagsIn(BaseModel):
+    tags: list[str] = Field(default_factory=list, max_length=8)
 
 
 class CostUsage(BaseModel):

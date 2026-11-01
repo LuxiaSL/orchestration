@@ -19,8 +19,9 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from .bus import Bus, now
-from .models import is_group, is_to, AGENT_KINDS, CLOSING_KINDS, HANDLE_RE, OPERATOR_KINDS, SYSTEM, LoginIn, PostIn, PresenceIn, PushSubscription
+from .models import TagsIn, is_group, is_to, AGENT_KINDS, CLOSING_KINDS, HANDLE_RE, OPERATOR_KINDS, SYSTEM, LoginIn, PostIn, PresenceIn, PushSubscription
 from .files import FileIn, Files
+from .groups import Groups
 from .handoffs import Handoffs, HandoffIn
 from .push import Pusher
 from .telemetry import Telemetry, Usage, summarize
@@ -83,6 +84,8 @@ def create_app(settings: Settings) -> FastAPI:
     bus.on_append.append(pusher.on_event)
     tel = Telemetry(settings.data_dir / "telemetry.jsonl")
     handoffs = Handoffs(settings.data_dir / "handoffs.json")
+    groups = Groups(settings.data_dir / "groups.json")
+    bus.groups = groups
     files = Files(settings.data_dir / "files", settings.operator)
     bus.on_append.append(lambda ev: files.on_event(ev, bus.threads))
 
@@ -184,6 +187,11 @@ def create_app(settings: Settings) -> FastAPI:
         for a in post.attachments or []:
             if not files.known(a.sha256):
                 raise HTTPException(422, f"attachment {a.name!r} isn't uploaded (POST /api/files first) or has expired")
+        if "#" in post.to:
+            try:
+                post.to = bus.resolve_to(post)  # a group becomes its sessions, each named (a group request collects one answer each)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
         if post.kind == "ask":
             if post.deadline is None or post.default is None:
                 raise HTTPException(422, "an ask needs default and deadline (invariant 1: nothing hard-blocks on a human)")
@@ -296,7 +304,8 @@ def create_app(settings: Settings) -> FastAPI:
         if p is None:
             raise HTTPException(404, "never seen")
         return {"handle": handle, "cursor": p.cursor, "last_seen": p.last_seen.isoformat(),
-                "renamed_to": p.renamed_to, "renamed_from": p.renamed_from}
+                "renamed_to": p.renamed_to, "renamed_from": p.renamed_from,
+                "groups": groups.tags_for([handle, *p.renamed_from])}
 
     @app.post("/api/handoffs")
     async def post_handoff(h: HandoffIn, who: Principal = Depends(principal)) -> dict:
@@ -309,6 +318,18 @@ def create_app(settings: Settings) -> FastAPI:
         p = bus.presence.get(handle)
         notes = handoffs.notes_for([handle, *(p.renamed_from if p else [])])
         return {"handle": handle, "notes": [n.model_dump(mode="json") for n in reversed(notes)]}
+
+    @app.put("/api/tags/{handle}")
+    async def put_tags(handle: str, body: TagsIn, _: Principal = Depends(operator_only)) -> dict:
+        """The operator's groups for a session: tags like 'kotodama' or 'kotodama/training' (an empty list clears them)."""
+        p = bus.presence.get(handle)
+        if p is None:
+            raise HTTPException(404, f"no session {handle!r}")
+        try:
+            tags = groups.set(handle, body.tags, old_names=p.renamed_from)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"handle": handle, "tags": tags}
 
     @app.post("/api/files")
     async def upload_file(f: FileIn, _: Principal = Depends(principal)) -> dict:

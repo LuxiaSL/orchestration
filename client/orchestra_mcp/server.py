@@ -42,7 +42,7 @@ Catching up: owed() first: the open requests/asks addressed to you that you have
 
 After a compaction: recall_search(query) and recall_read(line) reach back into your own full transcript (local, never sent) for exact ids, paths, numbers and the user's own words that the summary dropped. send_file(paths, note) hands the operator documents to read (markdown renders on their page); note_human/request_human/ask_human also take files=[paths]. mark(text) flags a moment (the user's exact words, a correction, the thread you're chasing) to be carried verbatim into the next handoff note.
 
-Talking to peers: post(to='@handle' or '@all'; a unique prefix like '@api' works for 'api-refactor'). Keep posts short (~600 chars), and link a file for detail. kind=status for routine progress (not pushed to anyone), info for things others should know now (pushed), request for a question to a peer (they answer with kind=answer, ref=<id>).
+Talking to peers: post(to='@handle' or '@all'; a unique prefix like '@api' works for 'api-refactor'; '#group' reaches every session in one of the operator's groups). Keep posts short (~600 chars), and link a file for detail. kind=status for routine progress (not pushed to anyone), info for things others should know now (pushed), request for a question to a peer (they answer with kind=answer, ref=<id>).
 
 Post a status when you start, finish, or get blocked. On HALT: finish the current atomic step, post status, start nothing new, end your turn.
 """
@@ -197,7 +197,15 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
             "unread": await _unread(ident.handle) if config and link.connected else None,
             "waiting_on": await _waiting_on(ident.handle) if config and link.connected else None,
             "owed": await _owed() if config and link.connected else None,
+            "groups": await _groups(ident.handle) if config and link.connected else None,
         }
+
+    async def _groups(me: str) -> list[str] | None:
+        """The operator's groups for you (address one as to='#name')."""
+        try:
+            return ["#" + g for g in (await link.get(f"/api/presence/{me}")).get("groups", [])]
+        except ToolError:
+            return None
 
     async def _owed() -> list[str] | None:
         """Open requests/asks addressed to you (any of your handles) that you haven't answered or replied to."""
@@ -238,7 +246,7 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
     @server.tool()
     async def post(
         body: Annotated[str, Field(description="Plain text. Aim for under ~600 characters (it may be read on a phone); link a file or record path for detail.")],
-        to: Annotated[str, Field(description="'@all', '@<handle>', or several: '@a,@b,@c' (each named session gets it as a direct message, and a request to several collects one answer per session). Any unique prefix of a handle works (e.g. '@api' for 'api-refactor').")] = "@all",
+        to: Annotated[str, Field(description="'@all', '@<handle>', or several: '@a,@b,@c' (each named session gets it as a direct message, and a request to several collects one answer per session). Any unique prefix of a handle works (e.g. '@api' for 'api-refactor'). '#group' names every session the operator put in that group (e.g. '#kotodama', '#kotodama/training'); whoami shows yours.")] = "@all",
         kind: Annotated[
             Literal["status", "info", "reply", "request", "answer", "withdraw"],
             Field(description="status=routine progress (never pushed); info=others should know now; "

@@ -43,6 +43,13 @@ On an ask, `default` must be one of the option labels. On the page, the operator
 
 Between sessions, use `post(to='@handle'|'@all', kind=…)`. To reach a few sessions, name them together: `to='@a,@b,@c'`. Each named session gets the message as a direct one, and a request sent to several collects one answer from each.
 
+**Groups.** On the page, the operator tags sessions with groups. A group is a path such as `kotodama` or `kotodama/training`, and a session in `kotodama/training` is also in `kotodama`.
+
+- The roster nests sessions under their first tag, in folding containers. Groups from a session's other tags appear as chips above the roster.
+- Clicking a group selects all its sessions. When the selection covers a whole group, the composer shows it as one chip.
+- Anyone can address a group as `to='#kotodama'`. The server replaces the group with its sessions' handles, so each session gets the message as a direct one.
+- Tags follow a session when it is renamed.
+
 The kinds:
 
 - `status` is routine progress and is never pushed to anyone.
