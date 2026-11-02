@@ -3,22 +3,22 @@ Description=orchestra - thin bus + inbox for parallel claude code sessions
 After=network.target
 
 [Service]
-User=orchestra
-WorkingDirectory=/opt/orchestra/server
-Environment=ORCHESTRA_DATA=/var/lib/orchestra
+User=@NAME@
+WorkingDirectory=/opt/@NAME@/server
+Environment=ORCHESTRA_DATA=/var/lib/@NAME@
 Environment=ORCHESTRA_HOST=127.0.0.1
-Environment=ORCHESTRA_PORT=7460
+Environment=ORCHESTRA_PORT=@PORT@
 Environment=ORCHESTRA_OPERATOR=@OPERATOR@
 Environment=ORCHESTRA_VAPID_SUB=@VAPID_SUB@
 Environment=ORCHESTRA_CLIENT_BUILD=@CLIENT_BUILD@
-ExecStart=/opt/orchestra/server/.venv/bin/orchestra-server
+ExecStart=/opt/@NAME@/server/.venv/bin/orchestra-server
 Restart=always
 RestartSec=3
 MemoryMax=300M
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/orchestra
+ReadWritePaths=/var/lib/@NAME@
 PrivateTmp=true
 
 [Install]
