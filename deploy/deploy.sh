@@ -25,7 +25,8 @@ render() { sed -e "s|@NAME@|$NAME|g" -e "s|@PORT@|$PORT|g" -e "s|@DOMAIN@|$DOMAI
 # Before writing anything: another bus already on this port would answer this one's health check (and lose its traffic).
 other=$(ssh "$HOST" "grep -l '^Environment=ORCHESTRA_PORT=$PORT\$' /etc/systemd/system/*.service 2>/dev/null | grep -v '/$NAME.service\$'" || true)
 [[ -z "$other" ]] || { echo "port $PORT is already used by $other; pick another PORT" >&2; exit 3; }
-ssh "$HOST" "mkdir -p /opt/$NAME/server"
+# the instance's user first: the branding copy below hands its files to it
+ssh "$HOST" "id $NAME >/dev/null 2>&1 || useradd --system --home /var/lib/$NAME --shell /usr/sbin/nologin $NAME; mkdir -p /opt/$NAME/server"
 rsync -az --delete --exclude .venv --exclude __pycache__ --exclude .pytest_cache --exclude tests \
   server/ "$HOST:/opt/$NAME/server/"
 render deploy/orchestra.service.in | ssh "$HOST" "cat > /etc/systemd/system/$NAME.service"
