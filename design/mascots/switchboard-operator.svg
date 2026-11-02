@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <title>orchestra: the switchboard operator</title>
+  <rect width="96" height="96" rx="22" fill="#14121a"/>
+  <g fill="none" stroke="#c39bff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- head and shoulders -->
+    <circle cx="40" cy="44" r="14"/>
+    <path d="M14 86 Q16 68 40 68 Q64 68 66 86"/>
+    <!-- headset: band clear of the head, ear cup, mic boom to the mouth -->
+    <path d="M21 46 Q20 20 40 20 Q60 20 59 46"/>
+    <rect x="16" y="40" width="9" height="14" rx="4" fill="#14121a"/>
+    <path d="M21 54 Q24 62 33 60"/>
+    <!-- a smile like the cat's: eyes shut, enjoying the call -->
+    <path d="M33 43 Q35.5 40 38 43" stroke-width="3.5"/>
+    <path d="M43 43 Q45.5 40 48 43" stroke-width="3.5"/>
+    <path d="M36 50 Q40 53 44 50" stroke-width="3.5"/>
+    <!-- the patch cord: plugged in up top, hanging down to her hand -->
+    <path d="M80 24 V32 Q90 58 70 76"/>
+  </g>
+  <circle cx="35" cy="60" r="4" fill="#ff6b7d"/>
+  <circle cx="80" cy="20" r="6" fill="#ff6b7d"/>
+</svg>
