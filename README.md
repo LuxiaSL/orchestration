@@ -122,7 +122,7 @@ The [claude-continuity](https://github.com/gabriel-berzescu/claude-continuity) p
 Two tools let a session keep what tends to get lost in a summary:
 
 - **`recall_search` and `recall_read`** read the session's own transcript, including everything from before any compaction. Most of a long context is tool output that the session can fetch again. What gets lost in a summary is the thin layer in between: exact ids, the user's own words, the reason why an option was turned down. With these tools, the session can find that layer on demand, in bounded pieces. They read the local file only.
-- **`mark`** flags a moment that must survive word for word, such as a correction or the thread that the session is chasing. The plugin copies every mark into the next handoff note itself, so the wording can't drift. (This needs a version of claude-continuity that reads `marks.jsonl`.)
+- **`mark`** flags a moment that must survive word for word, such as a correction or the thread that the session is chasing. The plugin copies every mark into the next handoff note itself, so the wording can't drift. (This needs [LuxiaSL's fork of claude-continuity](https://github.com/LuxiaSL/claude-continuity), which reads `marks.jsonl`.)
 
 ## Files for the operator
 
