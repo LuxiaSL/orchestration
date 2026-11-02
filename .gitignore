@@ -4,8 +4,10 @@ __pycache__/
 .pytest_cache/
 data/
 deploy/local.env
+deploy/*.env
 # local-only: about our own setup, not the project
 JOURNAL.md
 ORCHESTRA.md
 deploy/brand/
 feedback/
+guides/
