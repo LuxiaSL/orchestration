@@ -161,6 +161,11 @@ def create_app(settings: Settings) -> FastAPI:
                 raise HTTPException(422, f"bad sender handle {post.from_!r}")
             if post.kind not in AGENT_KINDS | {"answer"}:
                 raise HTTPException(403, f"sessions may not post {post.kind!r}")
+        if post.kind == "seen":
+            # Addressed to the operator, not the session: no client pushes it (old ones included), so nothing wakes.
+            if (post.ref or "") not in bus.threads:
+                raise HTTPException(422, "seen needs ref= an existing ask/request/note id")
+            post.to = f"@{settings.operator}"
         if post.kind in CLOSING_KINDS:
             thread = bus.threads.get(post.ref or "")
             if thread is None:
@@ -266,7 +271,7 @@ def create_app(settings: Settings) -> FastAPI:
         return {"threads": [{"id": t.id, "kind": t.kind, "to": t.to, "status": t.status, "ts": t.ts.isoformat(),
                              "deadline": t.deadline.isoformat() if t.deadline else None,
                              "first_line": (t.body.strip().splitlines() or [""])[0][:120], "replies": len(t.answers),
-                             "from": t.from_, "topic": t.topic}
+                             "from": t.from_, "topic": t.topic, "seen_at": t.seen_at.isoformat() if t.seen_at else None}
                             for t in ts[-50:]]}
 
     @app.get("/api/threads/{thread_id}")

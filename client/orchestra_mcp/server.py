@@ -40,6 +40,8 @@ Talking to {op} (pick the lightest that fits):
 
 Catching up: owed() first: the open requests/asks addressed to you that you haven't answered (one call, the right start after a compaction or restart). read() gives one line per event (not your own posts) from your read cursor; get(id) for one in full; read(thread=id) for a request and its replies; read(to_me=True), read(topic=...) or since=<seq, id or ISO time> to narrow.
 
+The operator can mark your notes and requests seen without waking you: a seen note is closed (status acked, resolution 'seen'), a seen request stays open for its answer. whoami's waiting_on and get(id) show it.
+
 After a compaction: recall_search(query) and recall_read(line) reach back into your own full transcript (local, never sent) for exact ids, paths, numbers and the user's own words that the summary dropped. send_file(paths, note) hands the operator documents to read (markdown renders on their page); note_human/request_human/ask_human also take files=[paths]. mark(text) flags a moment (the user's exact words, a correction, the thread you're chasing) to be carried verbatim into the next handoff note.
 
 Talking to peers: post(to='@handle' or '@all'; a unique prefix like '@api' works for 'api-refactor'; '#group' reaches every session in one of the operator's groups). Keep posts short (~600 chars), and link a file for detail. kind=status for routine progress (not pushed to anyone), info for things others should know now (pushed), request for a question to a peer (they answer with kind=answer, ref=<id>).
@@ -234,7 +236,8 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         except ToolError:
             return None
         return [f"{t['id']} {t['kind']} → {t['to']}" + (f" (default at {t['deadline'][11:16]}Z)" if t.get("deadline") else "")
-                + (f" · {t['replies']} replies" if t["replies"] else "") + f": {t['first_line']}" for t in ts]
+                + (f" · {t['replies']} replies" if t["replies"] else "")
+                + (f" · seen by the operator {t['seen_at'][11:16]}Z" if t.get("seen_at") else "") + f": {t['first_line']}" for t in ts]
 
     async def _unread(me: str) -> int | None:
         try:
@@ -414,7 +417,7 @@ def build_server(config: Config | None, config_error: str | None = None) -> MCPS
         out: dict = {"event": _line(hits[0], True)}
         try:
             t = await link.get(f"/api/threads/{id}")
-            out["thread"] = {k: t[k] for k in ("status", "resolution", "choice", "resolved_by", "resolved_at", "answers", "attachments") if k in t}
+            out["thread"] = {k: t[k] for k in ("status", "resolution", "choice", "resolved_by", "resolved_at", "seen_at", "answers", "attachments") if k in t}
         except ToolError:
             pass  # not a thread
         return out

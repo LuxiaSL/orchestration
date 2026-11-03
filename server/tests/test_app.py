@@ -524,3 +524,21 @@ def test_groups_tag_sessions_and_address_them(client):
     ev = client.post("/api/events", headers=OP, json={"from": "ada", "to": "#kotodama/training", "kind": "notice", "body": "x"}).json()
     assert ev["to"] == "@koto-train-2"
     assert client.get("/api/presence/koto-train-2", headers=AGENT).json()["groups"] == ["kotodama/training", "gpu"]
+
+
+def test_seen_marks_without_waking_the_session(client):
+    note = client.post("/api/events", headers=AGENT, json={"from": "atlas", "to": "@ada", "kind": "note", "body": "fyi: done"}).json()
+    req = client.post("/api/events", headers=AGENT, json={"from": "atlas", "to": "@ada", "kind": "request", "body": "which split?"}).json()
+    seen = lambda ref, hd=OP: client.post("/api/events", headers=hd, json={"from": "ada", "kind": "seen", "ref": ref, "to": "@atlas"})
+    ev = seen(note["id"]).json()
+    assert ev["to"] == "@ada"  # never addressed to the session, whatever was asked: no client pushes it
+    assert seen(req["id"]).status_code == 200
+    assert seen("n000000").status_code == 422
+    assert client.post("/api/events", headers=AGENT, json={"from": "atlas", "kind": "seen", "ref": req["id"]}).status_code == 403
+    t_note = client.get(f"/api/threads/{note['id']}", headers=OP).json()
+    t_req = client.get(f"/api/threads/{req['id']}", headers=OP).json()
+    assert t_note["status"] == "acked" and t_note["resolution"] == "seen" and t_note["seen_at"]
+    assert t_req["status"] == "open" and t_req["seen_at"]  # a question still wants its answer
+    mine = client.get("/api/threads", params={"opened_by": "atlas"}, headers=AGENT).json()["threads"]
+    assert [(t["id"], bool(t["seen_at"])) for t in mine] == [(req["id"], True)]
+    assert client.app.state.bus.waiting_for("atlas", 0) == 0  # nothing held for it either

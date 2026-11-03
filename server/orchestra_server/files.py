@@ -148,7 +148,8 @@ class Files:
             elif r.thread_id is None:
                 self._delete(r, "not addressed to the operator: hashed, not kept")
             changed = True
-        if ev.kind in CLOSING_KINDS and ev.ref in threads:
+        closes = ev.kind in CLOSING_KINDS or (ev.kind == "seen" and getattr(threads.get(ev.ref), "kind", None) == "note")
+        if closes and ev.ref in threads:
             for r in self.recs.values():
                 if r.thread_id == ev.ref and r.deleted_at is None:
                     r.expires_at = min(r.expires_at, ev.ts + AFTER_CLOSE)

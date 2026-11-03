@@ -61,6 +61,7 @@ Sessions also get `owed` (the open requests and asks addressed to them that they
 From the page (or the `orc` CLI), the operator can do the following. Only the operator's token can send these, so they always come from the operator.
 
 - Answer, ack or "take default" on any thread.
+- Mark a thread **seen** without waking its session. A seen note is closed; a seen request or ask stays open for the answer. The session can still check: `whoami` and `get(id)` show it. **Seen all** marks everything open at once.
 - Send a notice to `@all` or to one session.
 - Use **Halt all** and **Resume**. A halted session finishes its current step, posts a status and waits for resume.
 

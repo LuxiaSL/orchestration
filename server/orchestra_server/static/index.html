@@ -121,6 +121,7 @@ main { display: grid; grid-template-columns: clamp(210px, 16vw, 264px) minmax(0,
 #gstrip .gname[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
 .who .tg { color: var(--faint); }
 .tochip.grp { background: var(--bg); color: var(--fg); max-width: 26ch; }
+.seenmark { font-size: 12px; color: var(--muted); align-self: center; padding: 0 6px; }
 .rgroup { font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin: 14px 6px 2px; }
 .rfoot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
 .rfoot .two { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -465,7 +466,7 @@ details.tv .scroll { max-height: 280px; overflow: auto; margin-top: 6px; }
 
     <section id="inbox" class="pane active">
       <div class="sec-h"><h2>Inbox</h2><span class="n" id="openCount"></span>
-        <div class="tools"><select class="mini" id="inboxSort" title="sort the inbox">
+        <div class="tools"><button class="mini" id="seenAll" onclick="seenAll()" title="mark everything open as seen, without waking any session">seen all</button><select class="mini" id="inboxSort" title="sort the inbox">
           <option value="urgent">urgent first</option><option value="new">newest</option><option value="old">oldest</option><option value="who">by session</option>
         </select></div></div>
       <div id="open"></div>
@@ -630,7 +631,9 @@ function threadCard(t, closed) {
         ${k === "ask" ? `<button class="btn" onclick="takeDefault('${t.id}')">take default</button>` : ""}
         ${k !== "note" ? `<button class="btn" onclick="askMore('${t.id}')" title="sends your text to ${esc(t.from)} and keeps this open">ask for more info</button>` : ""}
         <span class="spacer"></span>
-        <button class="btn ghost" onclick="ack('${t.id}')">${k === "note" ? "seen" : "ack"}</button>
+        ${t.seen_at ? `<span class="seenmark" title="marked seen ${esc(ago(t.seen_at))}; ${esc(t.from)} wasn't woken">seen ✓</span>`
+          : `<button class="btn ghost" onclick="seen('${t.id}')" title="${k === "note" ? "close it" : "mark it seen (it stays open for your answer)"} without waking ${esc(t.from)}">seen</button>`}
+        ${k !== "note" ? `<button class="btn ghost" onclick="ack('${t.id}')" title="close it and tell ${esc(t.from)} (wakes it)">ack</button>` : ""}
       </div></div>`;
   } else {
     foot = `<div class="res"><b>${esc(t.status)}</b>${t.choice && t.choice.length ? " · " + t.choice.map(esc).join(", ") : ""}${t.resolution ? " · " + esc(t.resolution) : ""} · ${ago(t.resolved_at || t.ts)}</div>`;
@@ -742,7 +745,7 @@ function answer(id) {
   const t = state.inbox.open.find((x) => x.id === id);
   const chosen = t && t.options ? t.options.map((o) => o.label).filter((l) => picks[id] && picks[id].has(l)) : [];
   if (chosen.length) return closeThread("answer", id, body, { choice: chosen });
-  if (!body) { if (t && t.kind === "note") return ack(id); return toast(t && t.options ? "pick an option or write an answer" : "write an answer first"); }
+  if (!body) { if (t && t.kind === "note") return seen(id); return toast(t && t.options ? "pick an option or write an answer" : "write an answer first"); }
   closeThread("answer", id, body);
 }
 function takeDefault(id) {
@@ -774,6 +777,17 @@ $("#inbox").addEventListener("click", (e) => {
   });
 });
 function ack(id) { closeThread("ack", id, (drafts[id] || "").trim()); }
+// seen: you looked, and the session isn't woken for it (a note closes; a question stays open for your answer)
+async function seen(id, quietToast = false) {
+  try { await post({ kind: "seen", ref: id }); if (!quietToast) { await refresh(); toast("seen · not woken"); } }
+  catch (e) { toast("failed: " + e.message); }
+}
+async function seenAll() {
+  const ids = state.inbox.open.filter((t) => !t.seen_at).map((t) => t.id);
+  if (!ids.length) return toast("nothing new to mark");
+  for (const id of ids) await seen(id, true);
+  await refresh(); toast(`${ids.length} marked seen · nobody woken`);
+}
 
 // ---- bus ----
 // The bus shows the newest PAGE rows; "earlier" pages back, from memory and then from the server.
@@ -794,7 +808,7 @@ function evRow(e) {
 function markLong(root) {
   root.querySelectorAll(".ev:not(.open) .txt").forEach((t) => t.closest(".ev").classList.toggle("long", t.scrollHeight > t.clientHeight + 2));
 }
-const feedShows = (e) => (!$("#hideStatus").checked || e.kind !== "status") && (!$("#onlyMine").checked || e.from === OP() || (e.to || "").split(",").includes("@" + OP()));
+const feedShows = (e) => e.kind !== "seen" && (!$("#hideStatus").checked || e.kind !== "status") && (!$("#onlyMine").checked || e.from === OP() || (e.to || "").split(",").includes("@" + OP()));
 let newestFirst = recall("orc-feed-order") !== "old";
 let searchQ = "", searchTimer = null;
 function prependEvent(e) {
@@ -1170,7 +1184,7 @@ function connect() {
     events.push(e); if (events.length > 5000) events.splice(0, events.length - 5000);
     if (e.from && !(e.from in nicks) && e.from !== OP()) computeNicks();
     prependEvent(e);
-    if (["ask", "request", "note", "answer", "ack", "defaulted", "withdraw", "reply"].includes(e.kind)) refreshSoon();
+    if (["ask", "request", "note", "answer", "ack", "seen", "defaulted", "withdraw", "reply"].includes(e.kind)) refreshSoon();
     else state.head = e.seq;
   });
   es.onopen = () => $("#live").classList.add("on");

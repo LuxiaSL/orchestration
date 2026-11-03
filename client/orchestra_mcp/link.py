@@ -559,8 +559,8 @@ class Link:
         return set(self.state.handles[-10:]) | {cur}
 
     def _mine(self, ev: dict) -> bool:
-        if ev.get("from") in self.my_handles():
-            return False
+        if ev.get("from") in self.my_handles() or ev.get("kind") == "seen":
+            return False  # 'seen' is the operator's quiet mark: it never wakes a session
         if not self.state.peer_broadcasts and ev.get("to") == "@all" and ev.get("from") != self.operator:
             return False  # muted by this session: still on the bus for read()
         return any(is_for_me(ev, h, self.operator) for h in self.my_handles())

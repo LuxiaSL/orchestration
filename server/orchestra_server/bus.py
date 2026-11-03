@@ -104,6 +104,15 @@ class Bus:
                 t.choice = ev.choice if ev.kind == "answer" else ([t.default] if ev.kind == "defaulted" and t.options else None)
                 t.resolved_at = ev.ts
                 t.resolved_by = ev.from_
+        elif ev.kind == "seen" and ev.ref in self.threads:
+            # The operator saw it, and the session isn't woken for that: a note is done with, a question stays open.
+            t = self.threads[ev.ref]
+            t.seen_at = t.seen_at or ev.ts
+            if t.kind == "note" and t.status == "open":
+                t.status = "acked"
+                t.resolution = "seen"
+                t.resolved_at = ev.ts
+                t.resolved_by = ev.from_
         elif ev.kind == "reply" and (ev.ref in self.threads or ev.ref in self._answer_thread):
             # Replies are comments, not resolutions, but they belong with the thread they answer
             # (a broadcast's responses, or a back-and-forth asking for more info). A reply to one

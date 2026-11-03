@@ -13,7 +13,7 @@ SYSTEM = "orchestra"
 # Kinds a session may post.
 AgentKind = Literal["hello", "goodbye", "status", "info", "reply", "request", "ask", "note", "withdraw"]
 # Kinds only the operator (or the server) may post.
-OperatorKind = Literal["notice", "answer", "ack", "halt", "resume"]
+OperatorKind = Literal["notice", "answer", "ack", "seen", "halt", "resume"]
 SystemKind = Literal["defaulted"]
 Kind = Literal[AgentKind, OperatorKind, SystemKind]
 
@@ -195,6 +195,7 @@ class Thread(BaseModel):
     resolved_at: datetime | None = None
     resolved_by: str | None = None
     answers: list[dict] = Field(default_factory=list)  # broadcast answers + every reply (the discussion)
+    seen_at: datetime | None = None  # the operator saw it without waking the session (kind=seen); a note is closed by it
 
     model_config = ConfigDict(populate_by_name=True)
 

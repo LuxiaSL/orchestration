@@ -162,3 +162,15 @@ def test_read_handoff(tmp_path, monkeypatch):
     (d / "latest.md").write_text("<!-- continuity handoff, on request, from the transcript text, 2026-10-29T08:35:50.210Z; transcript: /home/x/t.jsonl -->\n\n## Where we are\nx\n")
     h = L.read_handoff("sid-1", 0.0)
     assert h["why"] == "on request, from the transcript text" and h["text"].startswith("## Where") and "/home/x" not in h["text"]
+
+
+def test_seen_never_wakes_a_session(monkeypatch):
+    from orchestra_mcp.link import Link
+    import types
+    lk = Link.__new__(Link)
+    lk.state = types.SimpleNamespace(handles=["scout"], peer_broadcasts=True, save=lambda: None)
+    lk.operator = "ada"
+    monkeypatch.setattr(Link, "me", property(lambda self: types.SimpleNamespace(handle="scout")))
+    assert lk._mine({"from": "ada", "to": "@scout", "kind": "ack", "ref": "n1"})
+    assert not lk._mine({"from": "ada", "to": "@scout", "kind": "seen", "ref": "n1"})
+    assert not lk._mine({"from": "ada", "to": "@ada", "kind": "seen", "ref": "n1"})
