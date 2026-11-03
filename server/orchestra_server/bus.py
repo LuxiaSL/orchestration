@@ -193,7 +193,8 @@ class Bus:
                 {
                     **post.model_dump(by_alias=True),
                     "to": self.resolve_to(post),
-                    "ref_excerpt": self.excerpt(post.ref) if post.kind in CLOSING_KINDS | {"reply"} else None,
+                    "ref_excerpt": self.excerpt(post.ref) if post.kind in CLOSING_KINDS | {"reply", "seen"} else None,
+                    "ref_from": self.threads[post.ref].from_ if post.kind == "seen" and post.ref in self.threads else None,
                     "seq": self.head + 1,
                     "id": self._new_id(post.kind),
                     "ts": now(),

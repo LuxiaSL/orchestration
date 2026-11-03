@@ -159,6 +159,7 @@ class Event(BaseModel):
     choice: list[str] | None = None
     attachments: list[Attachment] | None = None
     ref_excerpt: str | None = None  # first line of the thread this closes/replies to, so a push stands alone
+    ref_from: str | None = None  # on a 'seen': who opened the thread, so that session can carry the mark to its next wake
     session_id: str | None = None
     client_id: str | None = None
 

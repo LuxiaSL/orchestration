@@ -532,6 +532,7 @@ def test_seen_marks_without_waking_the_session(client):
     seen = lambda ref, hd=OP: client.post("/api/events", headers=hd, json={"from": "ada", "kind": "seen", "ref": ref, "to": "@atlas"})
     ev = seen(note["id"]).json()
     assert ev["to"] == "@ada"  # never addressed to the session, whatever was asked: no client pushes it
+    assert ev["ref_from"] == "atlas" and ev["ref_excerpt"] == "fyi: done"  # so atlas can carry it to its next wake
     assert seen(req["id"]).status_code == 200
     assert seen("n000000").status_code == 422
     assert client.post("/api/events", headers=AGENT, json={"from": "atlas", "kind": "seen", "ref": req["id"]}).status_code == 403

@@ -99,6 +99,7 @@ def _client_build() -> str:
 CLIENT_BUILD = _client_build()
 
 HANDOFF_WATCH_S = 5.0
+SEEN_KEEP = 50  # quiet 'seen' marks held for the next wake
 CHANNEL_KEEP_BYTES = 2 * 1024 * 1024
 CONTINUITY_DIR = Path(os.environ.get("ORCHESTRA_CONTINUITY_DIR")
                       or Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")) / "continuity")
@@ -222,6 +223,7 @@ class LocalState:
     handles: list[str] = field(default_factory=list)  # every handle this session has gone by
     peer_broadcasts: bool = True  # push peers' @all info/request (off: read() them instead)
     handoff_mtime: float = 0.0  # newest continuity note already sent to the operator
+    seen_pending: list[dict] = field(default_factory=list)  # the operator's quiet 'seen' marks on our threads, told at the next wake
     asks: dict[str, OpenAsk] = field(default_factory=dict)  # by client_id
 
     @classmethod
@@ -238,6 +240,7 @@ class LocalState:
                 st.handles = list(d.get("handles", []))
                 st.peer_broadcasts = bool(d.get("peer_broadcasts", True))
                 st.handoff_mtime = float(d.get("handoff_mtime", 0.0))
+                st.seen_pending = [x for x in d.get("seen_pending", []) if isinstance(x, dict) and x.get("ref")]
                 st.asks = {k: OpenAsk(**v) for k, v in d.get("asks", {}).items()}
             except (OSError, json.JSONDecodeError, TypeError) as exc:
                 print(f"orchestra-mcp: local state unreadable ({exc}); starting fresh", file=sys.stderr)
@@ -247,7 +250,7 @@ class LocalState:
         tmp = self.root / "state.json.tmp"
         tmp.write_text(json.dumps({
             "cursor": self.cursor, "read_cursor": self.read_cursor, "handles": self.handles[-10:],
-            "peer_broadcasts": self.peer_broadcasts, "handoff_mtime": self.handoff_mtime,
+            "peer_broadcasts": self.peer_broadcasts, "handoff_mtime": self.handoff_mtime, "seen_pending": self.seen_pending[-SEEN_KEEP:],
             "asks": {k: vars(v) for k, v in self.asks.items()},
         }, indent=1))
         tmp.replace(self.root / "state.json")
@@ -427,11 +430,34 @@ class Link:
             content = f"{len(batch)} orchestra messages:\n\n" + "\n\n".join(f"[{i}] {c}" for i, (c, _) in enumerate(batch, 1))
             meta = {"source": "orchestra", "kind": "batch", "count": str(len(batch)),
                     "ids": ",".join(m.get("id", "") for _, m in batch if m.get("id"))}
+        told = self._seen_note({m.get("ref") for _, m in batch} | {m.get("id") for _, m in batch})
+        if told:
+            content += told[0]
         try:
             await self.notify(content, meta)
             self.pushed += len(batch)
+            if told:
+                sent = set(told[1])
+                self.state.seen_pending = [x for x in self.state.seen_pending if x["ref"] not in sent]
+                self.state.save()
         except Exception as exc:
             print(f"orchestra-mcp: channel push failed ({exc!r})", file=sys.stderr)
+
+    def _seen_note(self, in_batch: set) -> tuple[str, list[str]] | None:
+        """The operator's quiet 'seen' marks since our last wake, as a postscript (and the refs it covers).
+
+        A thread this push already answers or closes is left out: the push says more than 'seen'."""
+        marks = [x for x in self.state.seen_pending if x["ref"] not in in_batch]
+        if not marks and not self.state.seen_pending:
+            return None
+        kinds = {"n": "note", "r": "request", "a": "ask"}
+        lines = [f"- {x['ref']} {kinds.get(x['ref'][:1], 'message')}"
+                 + (f" '{_one_line(x.get('excerpt') or '', 70)}'" if x.get("excerpt") else "")
+                 + (" (closed)" if x["ref"][:1] == "n" else " (still open: the answer is still to come)")
+                 for x in marks[-12:]]
+        text = (f"\n\n(Also, since you were last woken, {self.operator} marked these of yours seen without waking you:\n"
+                + "\n".join(lines) + (f"\n…and {len(marks) - 12} more" if len(marks) > 12 else "") + ")") if marks else ""
+        return text, [x["ref"] for x in self.state.seen_pending]
 
     async def _stream_forever(self) -> None:
         backoff = 1.0
@@ -572,6 +598,10 @@ class Link:
                 if a.id and a.id == ev.get("ref"):
                     a.resolved = ev.get("kind")
             self.state.asks = {k: v for k, v in self.state.asks.items() if v.resolved is None}
+        if ev.get("kind") == "seen" and ev.get("ref_from") in self.my_handles() and ev.get("ref"):
+            # Never pushed on its own (that would wake us): kept, and told with whatever wakes us next.
+            self.state.seen_pending = [x for x in self.state.seen_pending if x.get("ref") != ev["ref"]][-(SEEN_KEEP - 1):]
+            self.state.seen_pending.append({"ref": ev["ref"], "ts": ev.get("ts"), "excerpt": ev.get("ref_excerpt")})
         mine = self._mine(ev)
         if ev.get("kind") == "halt" and mine:
             self.halted = ev

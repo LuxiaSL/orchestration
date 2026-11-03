@@ -174,3 +174,34 @@ def test_seen_never_wakes_a_session(monkeypatch):
     assert lk._mine({"from": "ada", "to": "@scout", "kind": "ack", "ref": "n1"})
     assert not lk._mine({"from": "ada", "to": "@scout", "kind": "seen", "ref": "n1"})
     assert not lk._mine({"from": "ada", "to": "@ada", "kind": "seen", "ref": "n1"})
+
+
+def test_seen_marks_ride_along_with_the_next_wake(tmp_path, monkeypatch):
+    import asyncio, types
+    from orchestra_mcp import link as L
+    monkeypatch.setattr(L, "STATE_ROOT", tmp_path)
+    monkeypatch.setattr(L, "PUSH_BATCH_S", 0.05)
+    monkeypatch.setattr(L.Link, "me", property(lambda self: types.SimpleNamespace(handle="scout", session_id="sid-s")))
+    got = []
+    async def notify(c, m): got.append(c)
+    async def go():
+        lk = L.Link(None, notify)
+        lk.operator = "ada"
+        seen = lambda ref, ex: {"seq": 1, "id": "m1" + ref, "kind": "seen", "from": "ada", "to": "@ada", "ref": ref, "ref_from": "scout", "ref_excerpt": ex}
+        await lk._on_event(seen("n111111", "fyi: eval done"))
+        await lk._on_event(seen("r222222", "which split?"))
+        await lk._on_event(seen("r333333", "deploy now?"))
+        await lk._on_event({**seen("r444444", "not mine"), "ref_from": "atlas"})
+        await asyncio.sleep(0.2)
+        assert got == []  # seen alone wakes nobody
+        # the operator answers r333333 and sends a notice: one push, the seen marks along, minus the answered one
+        await lk._on_event({"seq": 5, "id": "m5", "kind": "answer", "from": "ada", "to": "@scout", "ref": "r333333", "body": "yes"})
+        await asyncio.sleep(L.PUSH_BATCH_S + 0.3)
+        assert len(got) == 1
+        assert "n111111 note 'fyi: eval done' (closed)" in got[0] and "r222222 request 'which split?' (still open" in got[0]
+        assert "r333333 request" not in got[0] and "r444444" not in got[0]
+        assert lk.state.seen_pending == []  # told once
+        await lk._on_event({"seq": 6, "id": "m6", "kind": "notice", "from": "ada", "to": "@scout", "body": "next"})
+        await asyncio.sleep(L.PUSH_BATCH_S + 0.3)
+        assert "marked these" not in got[1]
+    asyncio.run(go())
